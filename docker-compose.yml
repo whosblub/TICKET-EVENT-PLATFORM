@@ -1,0 +1,111 @@
+# Menjalankan seluruh sistem lokal: docker compose up --build  (gateway di http://localhost:8080)
+# event-service dan order-service berjalan 2 replika; gateway menemukan replika lewat DNS Docker (DISCOVERY=dns).
+name: ticketing
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://ticketing:ticketing@postgres:5432/ticketing
+  DISCOVERY: dns
+  AUTH_JWKS_URL: http://auth-service:4000/.well-known/jwks.json
+  AUTH_SERVICE_URLS: http://auth-service:4000
+  EVENT_SERVICE_URLS: http://event-service:4001
+  ORDER_SERVICE_URLS: http://order-service:4002
+  ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:-dev-order-service-secret-change-me}
+  ENFORCE_SECRETS: ${ENFORCE_SECRETS:-false}
+  LOG_REQUESTS: ${LOG_REQUESTS:-true}
+
+x-app: &app
+  build: .
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ticketing
+      POSTGRES_PASSWORD: ticketing
+      POSTGRES_DB: ticketing
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketing -d ticketing"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  auth-service:
+    <<: *app
+    command: ["node", "src/auth-service.js"]
+    environment:
+      <<: *app-env
+      PORT: "4000"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+      JWT_PRIVATE_JWK_B64: ${JWT_PRIVATE_JWK_B64:-}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  event-service:
+    <<: *app
+    command: ["node", "src/event-service.js"]
+    environment:
+      <<: *app-env
+      PORT: "4001"
+    deploy:
+      replicas: 2
+    depends_on:
+      postgres: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+
+  order-service:
+    <<: *app
+    command: ["node", "src/order-service.js"]
+    environment:
+      <<: *app-env
+      PORT: "4002"
+    deploy:
+      replicas: 2
+    depends_on:
+      postgres: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+      event-service: { condition: service_started }
+
+  gateway:
+    <<: *app
+    command: ["node", "src/gateway.js"]
+    environment:
+      <<: *app-env
+      PORT: "8080"
+      REDIS_URL: redis://redis:6379
+      RATE_LIMIT_GLOBAL_PER_MIN: ${RATE_LIMIT_GLOBAL_PER_MIN:-300}
+      RATE_LIMIT_AUTH_PER_5MIN: ${RATE_LIMIT_AUTH_PER_5MIN:-20}
+      RATE_LIMIT_ORDER_PER_MIN: ${RATE_LIMIT_ORDER_PER_MIN:-10}
+      RATE_LIMIT_GRAPHQL_PER_MIN: ${RATE_LIMIT_GRAPHQL_PER_MIN:-60}
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+      event-service: { condition: service_started }
+      order-service: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

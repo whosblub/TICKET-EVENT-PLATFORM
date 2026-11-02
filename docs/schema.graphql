@@ -1,0 +1,101 @@
+# Skema GraphQL katalog event (Event Service). Endpoint: POST /graphql (lewat gateway), header Authorization: Bearer <token>.
+# Dibaca langsung oleh event-service saat start, jadi file ini adalah sumber kebenaran skema.
+#
+# ---------------- Contoh query ----------------
+# 1) Daftar ringkas (hanya field yang dibutuhkan):
+#    { events(limit: 5) { total items { name startsAt } } }
+#
+# 2) Daftar lengkap dengan filter:
+#    { events(filter: { city: "Jakarta", onlyAvailable: true }, limit: 3) {
+#        total items { name artist venue startsAt minPrice totalAvailable ticketTypes { name price available } } } }
+#
+# 3) Satu event:
+#    query Detail($id: ID!) { event(id: $id) { name venue ticketTypes { id name price available } } }
+#    variables: { "id": "<uuid dari daftar event>" }
+#
+# ---------------- Contoh mutation (khusus admin, scope events:write) ----------------
+#    mutation { createEvent(input: {
+#        name: "Konser Contoh", artist: "Band X", venue: "Gedung Y", city: "Medan", category: "konser",
+#        startsAt: "2027-01-01T19:00:00+07:00",
+#        ticketTypes: [{ name: "Regular", price: 100000, total: 50 }] }) { id name ticketTypes { id available } } }
+#
+# ---------------- Batas ----------------
+# Kedalaman maksimum 5, jumlah field maksimum 100 (alias dihitung), limit halaman maksimum 50.
+# Pelanggaran -> error dengan extensions.code = QUERY_TOO_COMPLEX. Introspeksi dibiarkan aktif.
+
+enum EventStatus {
+  UPCOMING
+  ON_SALE
+  ENDED
+  CANCELLED
+}
+
+type TicketType {
+  id: ID!
+  name: String!
+  price: Float!
+  total: Int!
+  available: Int!
+}
+
+type Event {
+  id: ID!
+  name: String!
+  artist: String!
+  venue: String!
+  city: String!
+  category: String!
+  description: String
+  "Waktu mulai, format ISO 8601 (UTC)"
+  startsAt: String!
+  status: EventStatus!
+  "Harga termurah di antara jenis tiket"
+  minPrice: Float
+  "Total tiket tersedia dari semua jenis"
+  totalAvailable: Int!
+  ticketTypes: [TicketType!]!
+}
+
+type EventPage {
+  items: [Event!]!
+  total: Int!
+  limit: Int!
+  offset: Int!
+}
+
+input EventFilter {
+  "Cari pada nama atau artis"
+  q: String
+  city: String
+  category: String
+  status: EventStatus
+  onlyAvailable: Boolean
+}
+
+input TicketTypeInput {
+  name: String!
+  price: Float!
+  total: Int!
+}
+
+input CreateEventInput {
+  name: String!
+  artist: String!
+  venue: String!
+  city: String!
+  category: String!
+  description: String
+  "ISO 8601 dengan zona waktu, mis. 2027-01-01T19:00:00+07:00"
+  startsAt: String!
+  status: EventStatus
+  ticketTypes: [TicketTypeInput!]!
+}
+
+type Query {
+  events(filter: EventFilter, limit: Int = 20, offset: Int = 0): EventPage!
+  event(id: ID!): Event
+}
+
+type Mutation {
+  createEvent(input: CreateEventInput!): Event!
+}

@@ -1,92 +1,100 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 690" width="1000" height="690" font-family="Arial, Helvetica, sans-serif" xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpkODAyM2YyMS1kNTU2LTQwNTctOGExZS1hNTQzZDViMTk0NjAAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaLTMOpAGPmqbNvh6OzN5kagAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo3NTBhZmYwZi01OTJiLTQ2OGItYmJkMS0zM2I0MjQ4ZmEyYzBscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNovskziJX+lMZyk1cPzEB/jQAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggAuZvZdfo9L+EynxSO+taWxCaZU60ANq7GrheG1B9HnOkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaJfObVI+oV+Gd8w8TxP45YgAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRNAAAAAAAAAAAAAAAAAGRoYXNoWCAaSLtQ66F9o26vfPuC30I+0SxCxwGOwkXpbfhCgcVb6WRuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBjDZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmQ4MDIzZjIxLWQ1NTYtNDA1Ny04YTFlLWE1NDNkNWIxOTQ2MC9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjVhMmIyMWE2LWQzOGQtNDI0Mi1iMDBhLWE1ZTRjM2YzMDAyN3JjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCAC5m9l1+j0v4TKfFI761pbEJplTrQA2rsauF4bUH0ec6JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFgglAUqJzIehYDe29xgqFvQjj4D75/MxlbvvUXPBgT3GqWiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggQjp50uoXhzI2/Rwfu+bg8LtfdVDsJ7wuVlRJBfpXxzh0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQCX/n2+bknzowbKfx1uwshrwehNEsUXrZ6w3R1jSLFia5xs2EPnQGIZXS8yEaE0XKiWwSjre06HLk5J8PBMh1CI=</c2pa:manifest></metadata>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 690" width="1000" height="690" font-family="Arial, Helvetica, sans-serif">
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker>
-    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/></marker>
+    <marker id="q" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#be185d"/></marker>
   </defs>
   <rect width="1000" height="690" fill="#ffffff"/>
   <text x="500" y="26" text-anchor="middle" font-size="18" font-weight="bold" fill="#111827">Arsitektur Platform Tiket Event/Konser (Kelompok B)</text>
 
   <!-- Klien -->
-  <rect x="380" y="42" width="240" height="46" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="500" y="70" text-anchor="middle" font-size="14" fill="#111827">Klien (Postman / Web / Mobile)</text>
-  <line x1="500" y1="88" x2="500" y2="122" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <text x="512" y="110" font-size="12" fill="#374151">HTTPS</text>
+  <rect x="280" y="42" width="240" height="46" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+  <text x="400" y="70" text-anchor="middle" font-size="14" fill="#111827">Klien (Postman / Web / Mobile)</text>
+  <line x1="400" y1="88" x2="400" y2="122" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <text x="412" y="110" font-size="12" fill="#374151">HTTPS</text>
 
   <!-- Gateway -->
-  <rect x="290" y="122" width="420" height="96" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
-  <text x="500" y="148" text-anchor="middle" font-size="16" font-weight="bold" fill="#1e3a8a">API Gateway :8080</text>
-  <text x="500" y="170" text-anchor="middle" font-size="12" fill="#1e3a8a">Verifikasi JWT (JWKS) · Rate limiting</text>
-  <text x="500" y="188" text-anchor="middle" font-size="12" fill="#1e3a8a">Routing · Load balancing round-robin</text>
-  <text x="500" y="206" text-anchor="middle" font-size="12" fill="#1e3a8a">Blokir /internal · Hapus header x-user-*</text>
+  <rect x="240" y="122" width="320" height="96" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="400" y="148" text-anchor="middle" font-size="16" font-weight="bold" fill="#1e3a8a">API Gateway :8080</text>
+  <text x="400" y="170" text-anchor="middle" font-size="12" fill="#1e3a8a">Verifikasi JWT (JWKS) · Rate limiting</text>
+  <text x="400" y="188" text-anchor="middle" font-size="12" fill="#1e3a8a">Routing · Load balancing round-robin</text>
+  <text x="400" y="206" text-anchor="middle" font-size="12" fill="#1e3a8a">Blokir /internal · Hapus header x-user-*</text>
 
-  <!-- Redis -->
-  <rect x="40" y="135" width="190" height="70" rx="10" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
-  <text x="135" y="162" text-anchor="middle" font-size="15" font-weight="bold" fill="#7f1d1d">Redis 7</text>
-  <text x="135" y="183" text-anchor="middle" font-size="12" fill="#7f1d1d">hitungan rate limit</text>
-  <line x1="290" y1="170" x2="230" y2="170" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <!-- Redis (rate limit) -->
+  <rect x="30" y="135" width="170" height="70" rx="10" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+  <text x="115" y="162" text-anchor="middle" font-size="15" font-weight="bold" fill="#7f1d1d">Redis 7</text>
+  <text x="115" y="183" text-anchor="middle" font-size="12" fill="#7f1d1d">rate limit + antrian</text>
+  <line x1="240" y1="170" x2="200" y2="170" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
 
-  <!-- Message queue (rencana) -->
-  <rect x="760" y="122" width="200" height="96" rx="10" fill="#f9fafb" stroke="#9ca3af" stroke-width="2" stroke-dasharray="7 5"/>
-  <text x="860" y="150" text-anchor="middle" font-size="14" font-weight="bold" fill="#6b7280">Message Queue</text>
-  <text x="860" y="170" text-anchor="middle" font-size="14" font-weight="bold" fill="#6b7280">+ Worker</text>
-  <text x="860" y="196" text-anchor="middle" font-size="12" fill="#6b7280">(rencana minggu 11)</text>
+  <!-- Message queue -->
+  <rect x="740" y="122" width="230" height="96" rx="10" fill="#fce7f3" stroke="#be185d" stroke-width="2"/>
+  <text x="855" y="150" text-anchor="middle" font-size="15" font-weight="bold" fill="#831843">Message Queue</text>
+  <text x="855" y="170" text-anchor="middle" font-size="12" fill="#831843">BullMQ di atas Redis</text>
+  <text x="855" y="188" text-anchor="middle" font-size="12" fill="#831843">retry (backoff) · dead-letter</text>
+  <text x="855" y="206" text-anchor="middle" font-size="12" fill="#831843">jobId = orderId (anti ganda)</text>
 
   <!-- Gateway -> services -->
-  <line x1="360" y1="218" x2="165" y2="272" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <line x1="500" y1="218" x2="500" y2="272" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <line x1="640" y1="218" x2="790" y2="272" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <!-- Order <-> queue (rencana) -->
-  <line x1="900" y1="272" x2="900" y2="218" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#g)"/>
-  <text x="912" y="250" font-size="11" fill="#6b7280">publish</text>
+  <line x1="300" y1="218" x2="150" y2="272" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="400" y1="218" x2="385" y2="272" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="540" y1="218" x2="810" y2="272" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- Order -> queue -> worker (asinkron) -->
+  <line x1="900" y1="272" x2="900" y2="218" stroke="#be185d" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#q)"/>
+  <text x="912" y="250" font-size="11" fill="#be185d">publish</text>
+  <line x1="770" y1="218" x2="705" y2="272" stroke="#be185d" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#q)"/>
+  <text x="755" y="256" font-size="11" fill="#be185d">consume</text>
 
   <!-- Auth -->
-  <rect x="40" y="272" width="250" height="112" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
-  <text x="165" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#78350f">Auth Service :4000</text>
-  <text x="165" y="320" text-anchor="middle" font-size="12" fill="#78350f">OAuth2 (password + client creds)</text>
-  <text x="165" y="338" text-anchor="middle" font-size="12" fill="#78350f">JWT RS256 · JWKS · Registrasi</text>
-  <text x="165" y="364" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">1 instance</text>
+  <rect x="30" y="272" width="220" height="112" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="140" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#78350f">Auth Service :4000</text>
+  <text x="140" y="320" text-anchor="middle" font-size="12" fill="#78350f">OAuth2 (password + client creds)</text>
+  <text x="140" y="338" text-anchor="middle" font-size="12" fill="#78350f">JWT RS256 · JWKS · Registrasi</text>
+  <text x="140" y="364" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">1 instance</text>
 
   <!-- Event -->
-  <rect x="375" y="272" width="250" height="112" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
-  <text x="500" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#14532d">Event Service :4001</text>
-  <text x="500" y="320" text-anchor="middle" font-size="12" fill="#14532d">Katalog REST + GraphQL</text>
-  <text x="500" y="338" text-anchor="middle" font-size="12" fill="#14532d">Pemilik stok · reservasi internal</text>
-  <text x="500" y="364" text-anchor="middle" font-size="12" font-weight="bold" fill="#14532d">2 replika</text>
+  <rect x="270" y="272" width="220" height="112" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="380" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#14532d">Event Service :4001</text>
+  <text x="380" y="320" text-anchor="middle" font-size="12" fill="#14532d">Katalog REST + GraphQL</text>
+  <text x="380" y="338" text-anchor="middle" font-size="12" fill="#14532d">Pemilik stok · reservasi internal</text>
+  <text x="380" y="364" text-anchor="middle" font-size="12" font-weight="bold" fill="#14532d">2 replika</text>
+
+  <!-- Worker -->
+  <rect x="510" y="272" width="220" height="112" rx="10" fill="#fce7f3" stroke="#be185d" stroke-width="2"/>
+  <text x="620" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#831843">Worker</text>
+  <text x="620" y="320" text-anchor="middle" font-size="12" fill="#831843">Proses antrian satu per satu</text>
+  <text x="620" y="338" text-anchor="middle" font-size="12" fill="#831843">Reservasi stok · sweeper PENDING</text>
+  <text x="620" y="364" text-anchor="middle" font-size="12" font-weight="bold" fill="#831843">1 instance</text>
+  <line x1="510" y1="335" x2="492" y2="335" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
 
   <!-- Order -->
-  <rect x="710" y="272" width="250" height="112" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
-  <text x="835" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#4c1d95">Order Service :4002</text>
-  <text x="835" y="320" text-anchor="middle" font-size="12" fill="#4c1d95">Pemesanan · Idempotency-Key</text>
-  <text x="835" y="338" text-anchor="middle" font-size="12" fill="#4c1d95">Riwayat pesanan (cek kepemilikan)</text>
-  <text x="835" y="364" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">2 replika</text>
-
-  <!-- Order -> Event -->
-  <line x1="710" y1="335" x2="627" y2="335" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <text x="668" y="322" text-anchor="middle" font-size="11" fill="#374151">/internal</text>
-  <text x="668" y="354" text-anchor="middle" font-size="11" fill="#374151">client creds</text>
+  <rect x="750" y="272" width="220" height="112" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <text x="860" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#4c1d95">Order Service :4002</text>
+  <text x="860" y="320" text-anchor="middle" font-size="12" fill="#4c1d95">Terima pesanan → 202 PENDING</text>
+  <text x="860" y="338" text-anchor="middle" font-size="12" fill="#4c1d95">Idempotency-Key · riwayat pesanan</text>
+  <text x="860" y="364" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">2 replika</text>
 
   <!-- Services -> DB -->
-  <line x1="165" y1="384" x2="165" y2="439" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <line x1="500" y1="384" x2="500" y2="439" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <line x1="835" y1="384" x2="835" y2="439" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="140" y1="384" x2="140" y2="439" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="380" y1="384" x2="380" y2="439" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="620" y1="384" x2="620" y2="439" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="860" y1="384" x2="860" y2="439" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
 
   <!-- PostgreSQL -->
-  <rect x="40" y="440" width="920" height="146" rx="12" fill="#f0f9ff" stroke="#0284c7" stroke-width="2"/>
+  <rect x="30" y="440" width="940" height="146" rx="12" fill="#f0f9ff" stroke="#0284c7" stroke-width="2"/>
   <text x="500" y="466" text-anchor="middle" font-size="15" font-weight="bold" fill="#0c4a6e">PostgreSQL 16 (database: ticketing)</text>
-  <rect x="60" y="502" width="210" height="64" rx="8" fill="#ffffff" stroke="#0284c7"/>
-  <text x="165" y="527" text-anchor="middle" font-size="13" font-weight="bold" fill="#0c4a6e">schema auth</text>
-  <text x="165" y="548" text-anchor="middle" font-size="12" fill="#0c4a6e">users · clients</text>
-  <rect x="385" y="502" width="230" height="64" rx="8" fill="#ffffff" stroke="#0284c7"/>
-  <text x="500" y="527" text-anchor="middle" font-size="13" font-weight="bold" fill="#0c4a6e">schema events</text>
-  <text x="500" y="548" text-anchor="middle" font-size="12" fill="#0c4a6e">events · ticket_types · reservations</text>
-  <rect x="725" y="502" width="220" height="64" rx="8" fill="#ffffff" stroke="#0284c7"/>
-  <text x="835" y="527" text-anchor="middle" font-size="13" font-weight="bold" fill="#0c4a6e">schema orders</text>
-  <text x="835" y="548" text-anchor="middle" font-size="12" fill="#0c4a6e">orders</text>
+  <rect x="50" y="502" width="210" height="64" rx="8" fill="#ffffff" stroke="#0284c7"/>
+  <text x="155" y="527" text-anchor="middle" font-size="13" font-weight="bold" fill="#0c4a6e">schema auth</text>
+  <text x="155" y="548" text-anchor="middle" font-size="12" fill="#0c4a6e">users · clients</text>
+  <rect x="275" y="502" width="230" height="64" rx="8" fill="#ffffff" stroke="#0284c7"/>
+  <text x="390" y="527" text-anchor="middle" font-size="13" font-weight="bold" fill="#0c4a6e">schema events</text>
+  <text x="390" y="548" text-anchor="middle" font-size="12" fill="#0c4a6e">events · ticket_types · reservations</text>
+  <rect x="640" y="502" width="310" height="64" rx="8" fill="#ffffff" stroke="#0284c7"/>
+  <text x="795" y="527" text-anchor="middle" font-size="13" font-weight="bold" fill="#0c4a6e">schema orders</text>
+  <text x="795" y="548" text-anchor="middle" font-size="12" fill="#0c4a6e">orders (PENDING → CONFIRMED / REJECTED)</text>
 
   <!-- Legend -->
   <line x1="60" y1="625" x2="110" y2="625" stroke="#374151" stroke-width="2" marker-end="url(#a)"/>
-  <text x="120" y="629" font-size="12" fill="#374151">Sudah berjalan (minggu 8-10)</text>
-  <line x1="340" y1="625" x2="390" y2="625" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#g)"/>
-  <text x="400" y="629" font-size="12" fill="#374151">Rencana minggu 11 (message queue + worker)</text>
-  <text x="60" y="660" font-size="12" fill="#6b7280">Semua service memakai satu codebase dan satu image Docker; layanan dipilih lewat perintah start. Hanya gateway yang dibuka ke publik.</text>
+  <text x="120" y="629" font-size="12" fill="#374151">Panggilan sinkron (HTTP / SQL)</text>
+  <line x1="340" y1="625" x2="390" y2="625" stroke="#be185d" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#q)"/>
+  <text x="400" y="629" font-size="12" fill="#374151">Asinkron lewat message queue (minggu 11)</text>
+  <text x="60" y="660" font-size="12" fill="#6b7280">Semua service dan Worker memakai satu codebase dan satu image Docker; layanan dipilih lewat perintah start. Hanya gateway yang dibuka ke publik.</text>
 </svg>

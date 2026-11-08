@@ -1,5 +1,6 @@
 // Smoke test end-to-end lewat gateway. Jalankan: BASE_URL=http://localhost:8080 node scripts/smoke.mjs
 // Catatan: dijalankan sekali per ~1 menit (rate limit order per user) dan memakai event baru tiap kali.
+// Pemesanan bersifat asinkron (202 PENDING -> diproses Worker), jadi pengujian menunggu status akhir lewat polling.
 const BASE = process.env.BASE_URL || 'http://localhost:8080';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'ChangeMe123!';
@@ -22,6 +23,29 @@ const call = async (method, path, { token, json, form, headers = {} } = {}) => {
 };
 const login = async (username, password) =>
   call('POST', '/oauth/token', { form: { grant_type: 'password', client_id: 'ticketing-web', username, password } });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Pesanan diproses asinkron oleh Worker: tunggu sampai semua pesanan para user keluar dari PENDING.
+// Polling dibuat jarang (1,5 dtk) agar tidak melewati rate limit baca /orders (60/menit per user).
+async function settle(tokens, expected, timeoutMs = 40000) {
+  const t0 = Date.now();
+  let all = [];
+  while (Date.now() - t0 < timeoutMs) {
+    all = (await Promise.all(tokens.map((t) => call('GET', '/orders?limit=50', { token: t })))).flatMap((r) => r.body?.data ?? []);
+    if (all.length >= expected && all.every((o) => o.status !== 'PENDING')) return all;
+    await sleep(1500);
+  }
+  return all;
+}
+async function waitOrder(token, id, timeoutMs = 20000) {
+  const t0 = Date.now();
+  let r;
+  while (Date.now() - t0 < timeoutMs) {
+    r = await call('GET', `/orders/${id}`, { token });
+    if (r.body?.status && r.body.status !== 'PENDING') return r.body;
+    await sleep(1000);
+  }
+  return r?.body;
+}
 const gql = (token, query) => call('POST', '/graphql', { token, json: { query } });
 
 async function newUser(tag) {
@@ -92,11 +116,15 @@ const ttId = created.body.ticketTypes[0].id;
 const users = await Promise.all(['u1', 'u2', 'u3', 'u4', 'u5'].map(newUser));
 const attempts = users.flatMap((t) => Array.from({ length: 6 }, () => call('POST', '/orders', { token: t, json: { ticketTypeId: ttId, quantity: 1 } })));
 const results = await Promise.all(attempts);
-const count = (s) => results.filter((r) => r.status === s).length;
-ok(count(201) === 10 && count(409) === 20, '30 pemesanan bersamaan, stok 10 -> tepat 10 sukses, 20 ditolak', `201=${count(201)} 409=${count(409)} lain=${results.length - count(201) - count(409)}`);
+const accepted = results.filter((r) => r.status === 202);
+ok(accepted.length === 30 && accepted.every((r) => r.body.status === 'PENDING' && !!r.headers.get('location')), '30 pemesanan bersamaan diterima antrian (202 PENDING + Location)', `202=${accepted.length} lain=${results.length - accepted.length}`);
+const settled = await settle(users, 30);
+const confirmed = settled.filter((o) => o.status === 'CONFIRMED').length;
+const rejected = settled.filter((o) => o.status === 'REJECTED' && o.reason === 'INSUFFICIENT_STOCK').length;
+ok(confirmed === 10 && rejected === 20, 'worker memproses antrian: stok 10 -> tepat 10 CONFIRMED, 20 REJECTED (INSUFFICIENT_STOCK)', `CONFIRMED=${confirmed} REJECTED=${rejected} total=${settled.length}`);
 const after = await call('GET', `/events/${created.body.id}`, { token: userToken });
 ok(after.body.ticketTypes[0].available === 0, 'stok akhir = 0 (tidak negatif)', `available=${after.body.ticketTypes[0].available}`);
-ok(new Set(results.filter((r) => r.status === 201).map((r) => r.headers.get('x-instance-id'))).size >= 1, 'order-service melayani lewat replika', [...new Set(results.map((r) => r.headers.get('x-instance-id')))].join(', '));
+ok(new Set(results.map((r) => r.headers.get('x-instance-id'))).size >= 1, 'order-service melayani lewat replika', [...new Set(results.map((r) => r.headers.get('x-instance-id')))].join(', '));
 
 // 5. Idempotency & kepemilikan pesanan
 const ev2 = await call('POST', '/events', { token: adminToken, json: { name: `Idem ${run}`, artist: 'T', venue: 'V', city: 'Medan', category: 'konser', startsAt: '2027-08-01T19:00:00+07:00', ticketTypes: [{ name: 'R', price: 50000, total: 50 }] } });
@@ -104,17 +132,29 @@ const tt2 = ev2.body.ticketTypes[0].id;
 const buyer = await newUser('buyer');
 const o1 = await call('POST', '/orders', { token: buyer, json: { ticketTypeId: tt2, quantity: 2 }, headers: { 'idempotency-key': `key-${run}` } });
 const o2 = await call('POST', '/orders', { token: buyer, json: { ticketTypeId: tt2, quantity: 2 }, headers: { 'idempotency-key': `key-${run}` } });
-ok(o1.status === 201 && o2.status === 200 && o1.body.id === o2.body.id, 'Idempotency-Key: kirim ulang tidak memesan dua kali');
+ok(o1.status === 202 && o2.status === 200 && o1.body.id === o2.body.id, 'Idempotency-Key: kirim ulang tidak memesan dua kali (202 lalu 200, id sama)');
+const o1Final = await waitOrder(buyer, o1.body.id);
+ok(o1Final?.status === 'CONFIRMED', 'pesanan diproses worker -> CONFIRMED', `status=${o1Final?.status}`);
 const evAfter = await call('GET', `/events/${ev2.body.id}`, { token: buyer });
 ok(evAfter.body.ticketTypes[0].available === 48, 'stok hanya berkurang 2', `available=${evAfter.body.ticketTypes[0].available}`);
 const o3 = await call('POST', '/orders', { token: buyer, json: { ticketTypeId: tt2, quantity: 3 }, headers: { 'idempotency-key': `key-${run}` } });
 ok(o3.status === 409 && o3.body.error.code === 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key dipakai untuk pesanan lain -> 409');
+// Klik ganda: 5 request bersamaan dengan Idempotency-Key sama -> hanya 1 pesanan, stok berkurang sekali
+const dupBuyer = await newUser('dupbuyer');
+const dupRes = await Promise.all(Array.from({ length: 5 }, () => call('POST', '/orders', { token: dupBuyer, json: { ticketTypeId: tt2, quantity: 1 }, headers: { 'idempotency-key': `dup-${run}` } })));
+const dupIds = new Set(dupRes.map((r) => r.body?.id));
+ok(dupIds.size === 1 && dupRes.filter((r) => r.status === 202).length === 1 && dupRes.filter((r) => r.status === 200).length === 4, 'klik ganda (5 request, Idempotency-Key sama) -> hanya 1 pesanan', `id unik=${dupIds.size} 202=${dupRes.filter((r) => r.status === 202).length} 200=${dupRes.filter((r) => r.status === 200).length}`);
+const dupFinal = await waitOrder(dupBuyer, [...dupIds][0]);
+const evDup = await call('GET', `/events/${ev2.body.id}`, { token: dupBuyer });
+ok(dupFinal?.status === 'CONFIRMED' && evDup.body.ticketTypes[0].available === 47, 'klik ganda: stok hanya berkurang 1 (48 -> 47)', `status=${dupFinal?.status} available=${evDup.body.ticketTypes[0].available}`);
 const stranger = await newUser('stranger');
-ok((await call('GET', `/orders/${o1.body.id}`, { token: buyer })).body?.totalPrice === 100000, 'pemilik dapat melihat pesanannya (total 2 x 50000)');
+ok(o1Final?.totalPrice === 100000, 'pemilik dapat melihat pesanannya (total 2 x 50000)');
 ok((await call('GET', `/orders/${o1.body.id}`, { token: stranger })).status === 404, 'user lain tidak dapat melihat pesanan (BOLA) -> 404');
 ok((await call('GET', `/orders/${o1.body.id}`, { token: adminToken })).status === 200, 'admin dapat melihat pesanan');
 ok((await call('POST', '/orders', { token: buyer, json: { ticketTypeId: tt2, quantity: 99 } })).status === 400, 'quantity melebihi batas -> 400');
-ok((await call('POST', '/orders', { token: buyer, json: { ticketTypeId: '00000000-0000-4000-8000-000000000000', quantity: 1 } })).status === 404, 'ticket type tidak ada -> 404');
+const ghost = await call('POST', '/orders', { token: buyer, json: { ticketTypeId: '00000000-0000-4000-8000-000000000000', quantity: 1 } });
+const ghostFinal = ghost.status === 202 ? await waitOrder(buyer, ghost.body.id) : null;
+ok(ghost.status === 202 && ghostFinal?.status === 'REJECTED' && ghostFinal?.reason === 'TICKET_TYPE_NOT_FOUND', 'ticket type tidak ada -> diterima 202, lalu REJECTED (TICKET_TYPE_NOT_FOUND)', `status=${ghostFinal?.status} reason=${ghostFinal?.reason}`);
 
 // 6. Rate limiting per user pada /orders (dijalankan terakhir)
 const spammer = await newUser('spammer');

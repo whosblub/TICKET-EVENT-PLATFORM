@@ -1,5 +1,5 @@
 # Menjalankan seluruh sistem lokal: docker compose up --build  (gateway di http://localhost:8080)
-# event-service dan order-service berjalan 2 replika; gateway menemukan replika lewat DNS Docker (DISCOVERY=dns).
+# event-service dan order-service berjalan 2 replika; worker (konsumen message queue) 1 instance; gateway menemukan replika lewat DNS Docker (DISCOVERY=dns).
 name: ticketing
 
 x-app-env: &app-env
@@ -9,6 +9,7 @@ x-app-env: &app-env
   AUTH_SERVICE_URLS: http://auth-service:4000
   EVENT_SERVICE_URLS: http://event-service:4001
   ORDER_SERVICE_URLS: http://order-service:4002
+  REDIS_URL: redis://redis:6379
   ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:-dev-order-service-secret-change-me}
   ENFORCE_SECRETS: ${ENFORCE_SECRETS:-false}
   LOG_REQUESTS: ${LOG_REQUESTS:-true}
@@ -34,6 +35,10 @@ services:
 
   redis:
     image: redis:7-alpine
+    # noeviction: wajib untuk BullMQ (antrian tidak boleh terhapus saat memori penuh). appendonly: antrian bertahan saat restart.
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -80,6 +85,20 @@ services:
       replicas: 2
     depends_on:
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+
+  # Worker: konsumen antrian order. Memanggil reservasi stok di Event Service (token client credentials).
+  # Naikkan WORKER_CONCURRENCY atau replicas bila antrian menumpuk; stok tetap aman karena atomik di database.
+  worker:
+    <<: *app
+    command: ["node", "src/worker.js"]
+    environment:
+      <<: *app-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
       auth-service: { condition: service_healthy }
       event-service: { condition: service_started }
 
@@ -89,7 +108,6 @@ services:
     environment:
       <<: *app-env
       PORT: "8080"
-      REDIS_URL: redis://redis:6379
       RATE_LIMIT_GLOBAL_PER_MIN: ${RATE_LIMIT_GLOBAL_PER_MIN:-300}
       RATE_LIMIT_AUTH_PER_5MIN: ${RATE_LIMIT_AUTH_PER_5MIN:-20}
       RATE_LIMIT_ORDER_PER_MIN: ${RATE_LIMIT_ORDER_PER_MIN:-10}
@@ -109,3 +127,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

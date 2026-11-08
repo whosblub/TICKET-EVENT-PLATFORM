@@ -12,7 +12,7 @@
 | Akses langsung ke endpoint internal | `/internal/*` diblokir gateway (404) dan hanya menerima role `service` + scope `inventory:write` | `gateway.js`, `event-service.js` |
 | Service palsu memanggil service lain | OAuth2 Client Credentials; secret dari environment variable | `auth-service.js`, `lib/security.js` |
 | Header identitas dipalsukan klien | Gateway membuang header `x-user-*`; identitas hanya dari JWT yang diverifikasi ulang tiap service | `gateway.js` |
-| Oversell / double order | `UPDATE ... WHERE available >= qty` atomik, reservasi berkunci `order_id`, `Idempotency-Key`, CHECK constraint stok >= 0 | `event-service.js`, `order-service.js` |
+| Oversell / double order | `UPDATE ... WHERE available >= qty` atomik, reservasi berkunci `order_id`, `Idempotency-Key`, CHECK constraint stok >= 0 | `event-service.js`, `order-service.js`, `worker.js` |
 | Query GraphQL mahal / alias bomb | Batas kedalaman 5, maksimum 100 field, limit halaman 50, limiter khusus `/graphql` | `event-service.js`, `gateway.js` |
 | Injeksi | Validasi zod di setiap endpoint, SQL berparameter | semua service |
 | Kebocoran informasi | `/health` publik minimal; detail upstream hanya `/admin/upstreams` (admin); error 500 disamarkan | `gateway.js`, `lib/common.js` |
@@ -20,6 +20,8 @@
 
 Keputusan yang perlu dibahas jujur di laporan:
 - Rate limiter *fail-open* bila Redis mati (ketersediaan didahulukan).
+- Pemesanan asinkron: `202` berarti diterima, bukan terjual. Konsekuensinya klien harus polling status; sebagai gantinya server tahan lonjakan karena beban dipindah ke antrian dan Worker.
+- Pesanan yang gagal permanen (`PROCESSING_FAILED`) dapat meninggalkan reservasi stok yang tertahan; dipilih karena kesalahan "kurang jual" lebih aman daripada oversell.
 - Grant `password` dipakai untuk client publik karena sederhana untuk tugas ini. OAuth 2.1 sudah menghapusnya; untuk produksi gunakan Authorization Code + PKCE.
 - Komunikasi antar service di Docker Compose memakai HTTP biasa; di Render lewat HTTPS publik.
 

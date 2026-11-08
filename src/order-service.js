@@ -1,49 +1,24 @@
-// Order Service: pemesanan tiket. Stok dimiliki Event Service; Order Service memanggilnya
-// dengan token OAuth2 Client Credentials. Minggu 11: pemrosesan dipindah ke message queue + worker.
+// Order Service: menerima pesanan, menyimpannya sebagai PENDING, lalu memasukkannya ke message queue.
+// Stok dimiliki Event Service dan diproses oleh Worker (src/worker.js) satu per satu, sehingga lonjakan
+// request saat penjualan dibuka tidak langsung menekan Event Service/database dan tiket tidak terjual ganda.
 import express from 'express';
 import { z } from 'zod';
-import { setService, createApp, finishApp, listen, env, envInt, envList, log, wrap, validate, HttpError, assertSecrets } from './lib/common.js';
-import { createPool, waitForDb, migrate } from './lib/db.js';
-import { createVerifier, authenticate, requireScopes, requireRole, createServiceTokenProvider } from './lib/security.js';
-import { UpstreamPool } from './lib/upstream.js';
+import { setService, createApp, finishApp, listen, env, envInt, log, wrap, validate, HttpError } from './lib/common.js';
+import { createPool, waitForDb } from './lib/db.js';
+import { createVerifier, authenticate, requireScopes, requireRole } from './lib/security.js';
+import { migrateOrders } from './lib/orders.js';
+import { createOrderQueue, enqueueOrder } from './lib/queue.js';
 setService('order-service');
 
 const PORT_DEFAULT = 4002;
 const MAX_TICKETS_PER_ORDER = envInt('MAX_TICKETS_PER_ORDER', 4);
-const DISCOVERY = env('DISCOVERY', 'static');
-
-assertSecrets({ ORDER_SERVICE_CLIENT_SECRET: env('ORDER_SERVICE_CLIENT_SECRET') });
 
 const pool = createPool(env('DATABASE_URL'));
 await waitForDb(pool);
-await migrate(pool, 7003, async (c) => {
-  await c.query(`CREATE SCHEMA IF NOT EXISTS orders`);
-  await c.query(`CREATE TABLE IF NOT EXISTS orders.orders (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id text NOT NULL,
-    event_id uuid,
-    ticket_type_id uuid NOT NULL,
-    quantity int NOT NULL CHECK (quantity > 0),
-    unit_price numeric(12,2),
-    total_price numeric(12,2),
-    status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','CONFIRMED','REJECTED')),
-    reason text,
-    idempotency_key text,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (user_id, idempotency_key)
-  )`);
-  await c.query(`CREATE INDEX IF NOT EXISTS idx_orders_user ON orders.orders(user_id, created_at DESC)`);
-});
+await migrateOrders(pool);
 
-const eventPool = await new UpstreamPool('event-service', envList('EVENT_SERVICE_URLS', ['http://event-service:4001']), { discovery: DISCOVERY }).start();
-const authPool = await new UpstreamPool('auth-service', envList('AUTH_SERVICE_URLS', ['http://auth-service:4000']), { discovery: DISCOVERY }).start();
-const getServiceToken = createServiceTokenProvider({
-  authPool,
-  clientId: 'order-service',
-  clientSecret: env('ORDER_SERVICE_CLIENT_SECRET', ''),
-  scope: 'inventory:write',
-});
+// Producer: enableOfflineQueue=false agar gagal cepat (bukan menggantung) bila Redis tidak dapat dijangkau.
+const queue = createOrderQueue({ enableOfflineQueue: false });
 
 const mapOrder = (r) => ({
   id: r.id, userId: r.user_id, eventId: r.event_id, ticketTypeId: r.ticket_type_id, quantity: r.quantity,
@@ -51,38 +26,6 @@ const mapOrder = (r) => ({
   totalPrice: r.total_price === null ? null : Number(r.total_price),
   status: r.status, reason: r.reason, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
 });
-
-async function callInventory(path, body) {
-  const doCall = async (token) =>
-    eventPool.request('POST', path, { json: body, headers: { authorization: `Bearer ${token}` } });
-  let r = await doCall(await getServiceToken());
-  if (r.status === 401) r = await doCall(await getServiceToken(true)); // token kedaluwarsa/rotasi kunci
-  return r;
-}
-
-/**
- * Memproses satu order: reservasi stok lalu tetapkan status akhir.
- * Dipisahkan sebagai fungsi sendiri agar minggu 11 dapat dipanggil oleh Worker dari message queue.
- * Aman dipanggil ulang (idempoten) karena reservasi memakai order.id sebagai kunci.
- */
-async function processOrder(order) {
-  const r = await callInventory('/internal/reservations', {
-    orderId: order.id, ticketTypeId: order.ticket_type_id, quantity: order.quantity,
-  });
-  if (r.status === 200 || r.status === 201) {
-    const price = Number(r.body.unitPrice);
-    return (await pool.query(
-      `UPDATE orders.orders SET status='CONFIRMED', event_id=$2, unit_price=$3::numeric, total_price=$3::numeric * quantity, reason=NULL, updated_at=now()
-       WHERE id=$1 RETURNING *`,
-      [order.id, r.body.eventId, price],
-    )).rows[0];
-  }
-  if (r.status === 404 || r.status === 409) {
-    const reason = r.body?.error?.code ?? 'REJECTED';
-    return (await pool.query(`UPDATE orders.orders SET status='REJECTED', reason=$2, updated_at=now() WHERE id=$1 RETURNING *`, [order.id, reason])).rows[0];
-  }
-  throw new HttpError(503, 'INVENTORY_UNAVAILABLE', 'Layanan stok tidak tersedia');
-}
 
 const app = createApp('order-service');
 const verify = createVerifier({
@@ -103,6 +46,11 @@ const createSchema = z.object({
   quantity: z.number().int().min(1).max(MAX_TICKETS_PER_ORDER),
 });
 
+/**
+ * Asinkron: 202 Accepted + status PENDING. Hasil akhir (CONFIRMED/REJECTED) dibaca lewat GET /orders/{id}.
+ * Urutan sengaja: simpan ke database dulu, baru antrikan. Jika langkah antrian gagal, order tetap PENDING
+ * dan dipulihkan oleh sweeper Worker, jadi tidak ada pesanan yang hilang.
+ */
 app.post('/orders', auth, userOnly, requireScopes('orders:write'), express.json({ limit: '10kb' }), wrap(async (req, res) => {
   const body = validate(createSchema, req.body);
   const key = req.get('idempotency-key') ?? null;
@@ -124,22 +72,10 @@ app.post('/orders', auth, userOnly, requireScopes('orders:write'), express.json(
     return res.status(200).json(mapOrder(prev));
   }
 
-  let order;
-  try {
-    order = await processOrder(ins.rows[0]);
-  } catch (e) {
-    if (e instanceof HttpError && e.code === 'INVENTORY_UNAVAILABLE') {
-      // Hasil belum pasti: order tetap PENDING agar bisa diproses ulang (Worker, minggu 11).
-      log('warn', 'order tetap PENDING', { orderId: ins.rows[0].id });
-      return res.status(202).location(`/orders/${ins.rows[0].id}`).json(mapOrder(ins.rows[0]));
-    }
-    throw e;
-  }
-  if (order.status === 'REJECTED') {
-    const status = order.reason === 'TICKET_TYPE_NOT_FOUND' ? 404 : 409;
-    throw new HttpError(status, order.reason, order.reason === 'INSUFFICIENT_STOCK' ? 'Stok tiket tidak mencukupi' : 'Pesanan ditolak', { orderId: order.id });
-  }
-  res.status(201).location(`/orders/${order.id}`).json(mapOrder(order));
+  const order = ins.rows[0];
+  const queued = await enqueueOrder(queue, order.id);
+  if (!queued) log('warn', 'order tersimpan PENDING tanpa antrian', { orderId: order.id });
+  res.status(202).location(`/orders/${order.id}`).json(mapOrder(order));
 }));
 
 app.get('/orders', auth, userOnly, requireScopes('orders:read'), wrap(async (req, res) => {
@@ -161,4 +97,5 @@ app.get('/orders/:id', auth, userOnly, requireScopes('orders:read'), wrap(async 
 }));
 
 finishApp(app);
-listen(app, PORT_DEFAULT);
+const server = listen(app, PORT_DEFAULT);
+server.on('close', () => queue.close().catch(() => {}));

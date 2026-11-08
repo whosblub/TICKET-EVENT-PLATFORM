@@ -155,7 +155,12 @@ paths:
   /orders:
     post:
       tags: [Orders]
-      summary: Pesan tiket (scope orders:write)
+      summary: Pesan tiket (scope orders:write) - diproses asinkron lewat message queue
+      description: |
+        Pesanan disimpan berstatus `PENDING`, dimasukkan ke message queue, lalu diproses Worker (reservasi stok).
+        Respons `202` berarti **diterima**, bukan terkonfirmasi. Baca hasil akhir (`CONFIRMED` atau `REJECTED`
+        beserta `reason`) lewat `GET /orders/{id}` (polling, mis. tiap 1-2 detik) menggunakan URL di header `Location`.
+        Stok tidak pernah terjual ganda: pengurangan stok atomik di database dan reservasi berkunci `orderId`.
       parameters:
         - { name: Idempotency-Key, in: header, required: false, schema: { type: string, pattern: '^[\w.:-]{1,64}$' }, description: Kirim ulang dengan kunci sama tidak membuat pesanan baru }
       requestBody:
@@ -164,12 +169,15 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CreateOrderRequest' }
       responses:
-        '201': { description: Pesanan terkonfirmasi, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
-        '200': { description: Idempotency-Key sama; hasil sebelumnya dikembalikan }
-        '202': { description: Layanan stok sedang tidak tersedia; pesanan PENDING dan akan diproses ulang }
+        '202':
+          description: Pesanan diterima dan antri untuk diproses (status PENDING)
+          headers:
+            Location: { description: 'URL untuk memantau pesanan, mis. /orders/{id}', schema: { type: string } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } }
+        '200': { description: Idempotency-Key sama; pesanan sebelumnya dikembalikan (status saat ini), content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
         '400': { $ref: '#/components/responses/ValidationError' }
-        '404': { description: Jenis tiket tidak ditemukan }
-        '409': { description: Stok tidak cukup (INSUFFICIENT_STOCK) atau IDEMPOTENCY_KEY_REUSED }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: IDEMPOTENCY_KEY_REUSED (kunci dipakai untuk pesanan yang berbeda) }
         '429': { $ref: '#/components/responses/RateLimited' }
     get:
       tags: [Orders]
@@ -288,7 +296,7 @@ components:
         quantity: { type: integer }
         unitPrice: { type: number, nullable: true }
         totalPrice: { type: number, nullable: true }
-        status: { type: string, enum: [PENDING, CONFIRMED, REJECTED] }
-        reason: { type: string, nullable: true }
+        status: { type: string, enum: [PENDING, CONFIRMED, REJECTED], description: 'PENDING = antri/sedang diproses; CONFIRMED = tiket didapat; REJECTED = ditolak (lihat reason)' }
+        reason: { type: string, nullable: true, description: 'Terisi bila REJECTED: INSUFFICIENT_STOCK, TICKET_TYPE_NOT_FOUND, atau PROCESSING_FAILED (layanan stok gagal setelah semua percobaan ulang)' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

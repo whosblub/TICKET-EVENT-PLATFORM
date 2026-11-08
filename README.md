@@ -2,8 +2,7 @@
 
 Sistem tiket berbasis microservices untuk proyek lintas mata kuliah **Web Service x Software Testing**.
 
-Status: **progress sampai minggu 10** (keamanan OAuth2, API Gateway, service discovery, load balancing).
-Message queue + worker dikerjakan di minggu 11.
+Status: **progress sampai minggu 11** (keamanan OAuth2, API Gateway, service discovery, load balancing, message queue + worker, anti tiket ganda).
 
 ## Daftar isi
 
@@ -17,49 +16,69 @@ Message queue + worker dikerjakan di minggu 11.
 8. [Daftar environment variable](#daftar-environment-variable)
 9. [Deployment](#deployment-render--neon--upstash)
 10. [Keamanan](#keamanan-ringkasan-untuk-laporan-44)
-11. [Service discovery dan load balancing](#service-discovery-dan-load-balancing-minggu-10)
-12. [Pemecahan masalah](#pemecahan-masalah)
-13. [Struktur proyek](#struktur-proyek)
-14. [Rencana berikutnya](#rencana-berikutnya)
+11. [Message queue dan worker](#message-queue-dan-worker-minggu-11)
+12. [Service discovery dan load balancing](#service-discovery-dan-load-balancing-minggu-10)
+13. [Pemecahan masalah](#pemecahan-masalah)
+14. [Struktur proyek](#struktur-proyek)
+15. [Rencana berikutnya](#rencana-berikutnya)
 
 ## Arsitektur
 
 ![Diagram arsitektur](docs/arsitektur.png)
 
-*Versi vektor: [`docs/arsitektur.svg`](docs/arsitektur.svg). Garis putus-putus adalah rencana minggu 11.*
+*Versi vektor: [`docs/arsitektur.svg`](docs/arsitektur.svg). Garis putus-putus adalah jalur asinkron lewat message queue.*
 
 | Service | Port | Instance | Tugas |
 |---|---|---|---|
 | gateway | 8080 | 1 | Satu-satunya pintu masuk publik. Verifikasi JWT, rate limit, routing, load balancing, blokir `/internal` |
 | auth-service | 4000 | 1 | Authorization Server OAuth2 (password dan client credentials), JWKS, registrasi |
 | event-service | 4001 | 2 replika | Katalog event (REST dan GraphQL), pemilik stok tiket, endpoint reservasi internal |
-| order-service | 4002 | 2 replika | Pemesanan, idempotensi, riwayat pesanan |
+| order-service | 4002 | 2 replika | Menerima pesanan (`202 PENDING`), idempotensi, memasukkan pesanan ke antrian, riwayat pesanan |
+| worker | - (opsional `/health`) | 1 | Konsumen antrian: memanggil reservasi stok ke event-service, menetapkan status akhir, retry, sweeper |
 | postgres | 5432 | 1 | Database (schema `auth`, `events`, `orders`), tidak dibuka ke luar |
-| redis | 6379 | 1 | Penyimpanan hitungan rate limit gateway, tidak dibuka ke luar |
+| redis | 6379 | 1 | Hitungan rate limit gateway dan message queue (BullMQ), tidak dibuka ke luar |
 
 Semua service memakai satu codebase dan satu image Docker; service dipilih lewat perintah start (`node src/<service>.js`).
 
-### Alur pemesanan tiket (kondisi minggu 10)
+### Alur pemesanan tiket (minggu 11: asinkron lewat message queue)
 
 ```mermaid
 sequenceDiagram
     participant K as Klien
     participant G as Gateway
     participant O as Order Service
+    participant Q as Message Queue (BullMQ/Redis)
+    participant W as Worker
     participant E as Event Service
     participant D as PostgreSQL
     K->>G: POST /orders (Bearer token, Idempotency-Key)
-    G->>G: Verifikasi JWT, cek rate limit
+    G->>G: Verifikasi JWT, rate limit (IP dan pengguna)
     G->>O: Teruskan ke replika sehat (round-robin)
-    O->>O: Verifikasi ulang token, validasi input
-    O->>E: POST /internal/... (token client credentials)
+    O->>D: INSERT pesanan status PENDING
+    O->>Q: Publish job (jobId = orderId)
+    O-->>K: 202 Accepted + Location /orders/{id}
+    Q->>W: Kirim job (satu per satu)
+    W->>E: POST /internal/reservations (token client credentials)
     E->>D: UPDATE stok WHERE available >= qty (atomik)
-    E-->>O: Reservasi berhasil / stok habis
-    O->>D: Simpan pesanan
-    O-->>K: 201 Created / 409 stok habis
+    E-->>W: Reservasi berhasil / stok habis
+    W->>D: Set status CONFIRMED atau REJECTED
+    K->>G: GET /orders/{id} (polling)
+    G-->>K: status akhir
 ```
 
-Pada minggu 11, langkah Order -> Event diganti: Order Service mengirim pesan ke message queue, membalas `202 PENDING`, dan Worker yang memanggil reservasi stok.
+Mengapa asinkron: saat penjualan dibuka, ribuan request tiba bersamaan. Order Service hanya menulis satu baris dan satu pesan antrian (cepat), sedangkan pemrosesan stok yang berat dilakukan Worker dengan laju terkendali, sehingga Event Service dan database tidak jebol. Tiket tidak terjual ganda karena pengurangan stok atomik di database dan reservasi berkunci `orderId`, jadi job yang terkirim dua kali atau di-retry tidak mengurangi stok dua kali.
+
+**Ketahanan (failure handling)**
+
+| Kondisi | Perilaku |
+|---|---|
+| Event Service sementara mati / timeout | Job gagal lalu di-retry otomatis dengan exponential backoff (default 5 percobaan: 2, 4, 8, 16 detik). Pesanan tetap `PENDING`. |
+| Semua percobaan gagal | Job masuk *dead-letter* (set `failed` BullMQ, 1000 terakhir disimpan) dan pesanan ditandai `REJECTED` dengan `reason=PROCESSING_FAILED`. |
+| Redis mati tepat saat publish | Pesanan sudah tersimpan `PENDING`; Order Service tetap membalas `202`. Sweeper Worker mengantrikan ulang pesanan `PENDING` yang lebih tua dari 60 detik (cek tiap 30 detik). |
+| Pesan terkirim dua kali / job diproses ulang | Aman: Worker melewati pesanan yang sudah bukan `PENDING`, dan reservasi stok idempoten. |
+| Worker dimatikan (SIGTERM) | Job yang sedang berjalan diselesaikan dulu; job lain tetap di antrian (Redis memakai AOF di Compose). |
+
+Batasan yang diketahui (untuk dibahas di laporan): jika Event Service sempat berhasil mereservasi tetapi responsnya hilang lalu semua percobaan gagal, stok bisa tertahan untuk pesanan `REJECTED` (kesalahan ke arah "kurang jual", bukan oversell). Endpoint pelepasan reservasi belum dibuat.
 
 ## Teknologi
 
@@ -69,13 +88,13 @@ Pada minggu 11, langkah Order -> Event diganti: Order Service mengirim pesan ke 
 | Framework HTTP | Express 4 |
 | Database | PostgreSQL 16 (schema: `auth`, `events`, `orders`) |
 | Cache / penyimpanan rate limit | Redis 7 |
+| Message queue | BullMQ (di atas Redis 7): retry, backoff, dead-letter |
 | Autentikasi | OAuth2, JWT RS256 (library `jose`), hashing `bcryptjs` |
 | Validasi input | `zod` |
 | Protokol | REST dan GraphQL (`graphql`) |
 | Keamanan HTTP | `helmet`, `cors`, `express-rate-limit` + `rate-limit-redis` |
 | Kontainerisasi | Docker dan Docker Compose |
 | Deployment | Render (service), Neon (Postgres), Upstash (Redis) |
-| Message queue | Diisi pada minggu 11 |
 
 ## Menjalankan dengan Docker
 
@@ -102,7 +121,7 @@ node scripts/smoke.mjs                       # melawan http://localhost:8080
 BASE_URL=https://url-deploy node scripts/smoke.mjs
 ```
 
-Smoke test memeriksa autentikasi, otorisasi, GraphQL, load balancing, 30 pemesanan bersamaan terhadap stok 10, idempotensi, dan rate limit.
+Smoke test memeriksa autentikasi, otorisasi, GraphQL, load balancing, 30 pemesanan bersamaan terhadap stok 10 (diterima `202`, lalu menunggu Worker: tepat 10 `CONFIRMED`, 20 `REJECTED`), idempotensi, dan rate limit.
 
 ### Tanpa Docker (pengembangan)
 
@@ -177,9 +196,9 @@ Spesifikasi lengkap: [`docs/openapi.yaml`](docs/openapi.yaml). Skema GraphQL bes
 | GET | `/events/{id}` | `events:read` | Detail event dan jenis tiket |
 | POST | `/events` | admin, `events:write` | Buat event |
 | POST | `/graphql` | `events:read` | Katalog via GraphQL; mutation `createEvent` khusus admin |
-| POST | `/orders` | `orders:write` | Pesan tiket |
+| POST | `/orders` | `orders:write` | Pesan tiket. Asinkron: `202` + status `PENDING`; pantau lewat `Location` |
 | GET | `/orders` | `orders:read` | Daftar pesanan sendiri |
-| GET | `/orders/{id}` | `orders:read` | Detail pesanan (pemilik atau admin) |
+| GET | `/orders/{id}` | `orders:read` | Detail pesanan dan status akhir `CONFIRMED`/`REJECTED` (pemilik atau admin) |
 
 Endpoint `/internal/*` (reservasi stok) sengaja tidak dapat dijangkau lewat gateway (404) dan hanya menerima token `client_credentials`.
 
@@ -235,15 +254,16 @@ Lengkap dengan placeholder di [`.env.example`](.env.example). Variabel wajib per
 | gateway | `AUTH_JWKS_URL`, `AUTH_SERVICE_URLS`, `EVENT_SERVICE_URLS`, `ORDER_SERVICE_URLS`, `DISCOVERY`; opsional `REDIS_URL`, `TRUST_PROXY`, `CORS_ORIGINS`, `RATE_LIMIT_*` |
 | auth-service | `DATABASE_URL`, `ORDER_SERVICE_CLIENT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`; opsional `JWT_PRIVATE_JWK_B64`, `ACCESS_TOKEN_TTL_SECONDS` |
 | event-service | `DATABASE_URL`, `AUTH_JWKS_URL` |
-| order-service | `DATABASE_URL`, `AUTH_JWKS_URL`, `AUTH_SERVICE_URLS`, `EVENT_SERVICE_URLS`, `ORDER_SERVICE_CLIENT_SECRET` |
+| order-service | `DATABASE_URL`, `AUTH_JWKS_URL`, `REDIS_URL` |
+| worker | `DATABASE_URL`, `REDIS_URL`, `AUTH_SERVICE_URLS`, `EVENT_SERVICE_URLS`, `ORDER_SERVICE_CLIENT_SECRET`; opsional `WORKER_CONCURRENCY`, `ORDER_JOB_ATTEMPTS`, `ORDER_JOB_BACKOFF_MS`, `ORDER_SWEEP_INTERVAL_MS`, `ORDER_STALE_SECONDS` |
 
 Semua service: `ENFORCE_SECRETS=true` membuat service menolak start jika secret kosong, terlalu pendek, atau masih default. **Wajib aktif pada deployment publik.** Buat kunci JWT dengan `npm run gen:jwk`.
 
 ## Deployment (Render + Neon + Upstash)
 
 1. Neon: buat database Postgres, salin connection string ke `DATABASE_URL` (tambahkan `?sslmode=require`; tabel dibuat otomatis saat service pertama kali start).
-2. Upstash (atau Redis lain): salin URL `rediss://...` ke `REDIS_URL` gateway.
-3. Render: buat 4 Web Service dari repo yang sama (build `npm install`, start `node src/<service>.js`). Isi `DISCOVERY=static` dan URL publik antarlayanan (mis. `EVENT_SERVICE_URLS=https://event-service-xxxx.onrender.com`). Isi `TRUST_PROXY=1` pada gateway, `ENFORCE_SECRETS=true` di semua service, dan `JWT_PRIVATE_JWK_B64` (hasil `npm run gen:jwk`) di auth-service. Ganti `ADMIN_PASSWORD` dan `ORDER_SERVICE_CLIENT_SECRET`.
+2. Upstash (atau Redis lain): salin URL `rediss://...` ke `REDIS_URL` **gateway, order-service, dan worker** (satu Redis yang sama). Message queue wajib Redis; Upstash gratis memiliki batas jumlah perintah harian, jadi pantau pemakaian dan jangan menjalankan uji beban panjang tanpa memeriksa kuota. Bila memakai Redis sendiri, atur `maxmemory-policy noeviction`.
+3. Render: buat 4 Web Service dari repo yang sama (build `npm install`, start `node src/<service>.js`), ditambah **worker** (`node src/worker.js`) sebagai *Background Worker*. Jika memakai tier gratis (tidak ada Background Worker), buat sebagai Web Service: worker membuka `GET /health` otomatis bila `PORT` diatur; pantau URL itu dengan layanan ping (mis. UptimeRobot) agar tidak tidur, karena worker yang tidur berarti pesanan menumpuk `PENDING`. Isi `DISCOVERY=static` dan URL publik antarlayanan (mis. `EVENT_SERVICE_URLS=https://event-service-xxxx.onrender.com`). Isi `TRUST_PROXY=1` pada gateway, `ENFORCE_SECRETS=true` di semua service, dan `JWT_PRIVATE_JWK_B64` (hasil `npm run gen:jwk`) di auth-service. Ganti `ADMIN_PASSWORD` dan `ORDER_SERVICE_CLIENT_SECRET`.
 4. Hanya URL gateway yang diberikan kepada kelompok penguji.
 
 **Catatan untuk penguji:** pada tier gratis Render, service tidur setelah tidak aktif sehingga request pertama bisa lambat (cold start). Panggil `GET /health` beberapa kali sebelum pengujian performa.
@@ -265,9 +285,23 @@ Semua service: `ENFORCE_SECRETS=true` membuat service menolak start jika secret 
 
 Pemetaan ancaman ke kontrol yang lebih lengkap ada di [`docs/keamanan-dan-protokol.md`](docs/keamanan-dan-protokol.md).
 
+## Message queue dan worker (minggu 11)
+
+Implementasi di `src/lib/queue.js` (koneksi, opsi retry, publish), `src/lib/orders.js` (skema tabel dan `processOrder`), dan `src/worker.js` (consumer, dead-letter, sweeper). Pilihan teknologi: BullMQ karena memakai Redis yang sudah ada untuk rate limit, menyediakan retry/backoff/dead-letter bawaan, dan `jobId` untuk mencegah pesan ganda. Alur dan penanganan kegagalan ada di bagian [Alur pemesanan tiket](#alur-pemesanan-tiket-minggu-11-asinkron-lewat-message-queue).
+
+Memeriksa antrian dan dead-letter:
+
+```bash
+docker compose logs -f worker                       # job diproses / gagal
+docker compose exec redis redis-cli keys 'bull:order-processing:*'
+docker compose exec redis redis-cli zrange bull:order-processing:failed 0 -1   # dead-letter (id job = orderId)
+```
+
+Menaikkan throughput: `WORKER_CONCURRENCY` (default 1 = satu per satu) atau jumlah replika worker. Stok tetap aman karena atomik di database.
+
 ## Service discovery dan load balancing (minggu 10)
 
-Gateway dan Order Service memakai `UpstreamPool` (`src/lib/upstream.js`): di Docker Compose nama service di-resolve lewat DNS ke semua alamat replika (`DISCOVERY=dns`), disegarkan tiap 5 detik, dipantau lewat `GET /health`, lalu request dibagi round-robin hanya ke replika sehat. Jika koneksi ke satu replika gagal, request idempoten otomatis dicoba ke replika lain. Header respons `X-Instance-Id` menunjukkan replika yang melayani, berguna untuk membuktikan load balancing saat pengujian. `GET /admin/upstreams` (admin) menampilkan replika yang ditemukan beserta status sehatnya.
+Gateway dan Worker memakai `UpstreamPool` (`src/lib/upstream.js`): di Docker Compose nama service di-resolve lewat DNS ke semua alamat replika (`DISCOVERY=dns`), disegarkan tiap 5 detik, dipantau lewat `GET /health`, lalu request dibagi round-robin hanya ke replika sehat. Jika koneksi ke satu replika gagal, request idempoten otomatis dicoba ke replika lain. Header respons `X-Instance-Id` menunjukkan replika yang melayani, berguna untuk membuktikan load balancing saat pengujian. `GET /admin/upstreams` (admin) menampilkan replika yang ditemukan beserta status sehatnya.
 
 ## Pemecahan masalah
 
@@ -286,8 +320,9 @@ Melihat log: `docker compose logs <nama-service>` (mis. `gateway`, `order-servic
 ## Struktur proyek
 
 ```
-src/gateway.js  src/auth-service.js  src/event-service.js  src/order-service.js
+src/gateway.js  src/auth-service.js  src/event-service.js  src/order-service.js  src/worker.js
 src/lib/        common.js (app, error, log)  db.js  security.js (JWT, scope)  upstream.js (discovery, LB)
+                queue.js (message queue)  orders.js (skema order, pemroses order)
 docs/           openapi.yaml  schema.graphql  arsitektur.png  arsitektur.svg  keamanan-dan-protokol.md
 scripts/        smoke.mjs  gen-jwk.mjs
 Dockerfile  docker-compose.yml  .env.example  .dockerignore
@@ -295,5 +330,5 @@ Dockerfile  docker-compose.yml  .env.example  .dockerignore
 
 ## Rencana berikutnya
 
-- Minggu 11: `POST /orders` menjadi asinkron (`202` + `PENDING`), publish ke message queue, Worker memanggil reservasi stok (sudah idempoten), retry dan dead-letter queue. Fungsi `processOrder` di `order-service.js` sudah dipisahkan untuk disambungkan ke Worker.
 - Minggu 12: code freeze, finalisasi dokumentasi dan URL deployment.
+- Pengembangan lanjutan (di luar tugas): endpoint pelepasan reservasi untuk pesanan `PROCESSING_FAILED`, Authorization Code + PKCE.

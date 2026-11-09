@@ -33,7 +33,7 @@ async function startGateway(limits = {}) {
     env: {
       ...process.env, PORT: String(port), DISCOVERY: 'static', LOG_REQUESTS: 'false',
       AUTH_SERVICE_URLS: dead, EVENT_SERVICE_URLS: dead, ORDER_SERVICE_URLS: dead, AUTH_JWKS_URL: jwksUrl,
-      RATE_LIMIT_GLOBAL_PER_MIN: '1000', ...limits,
+      RATE_LIMIT_GLOBAL_PER_MIN: '1000', REDIS_URL: '', ...limits, // REDIS_URL kosong: test selalu pakai memori lokal (tidak bercampur dengan Redis di mesin pengembang)
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   });

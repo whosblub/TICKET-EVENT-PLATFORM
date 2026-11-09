@@ -2,7 +2,7 @@
 
 Sistem tiket berbasis microservices untuk proyek lintas mata kuliah **Web Service x Software Testing**.
 
-Status: **progress sampai minggu 11** (keamanan OAuth2, API Gateway, service discovery, load balancing, message queue + worker, anti tiket ganda).
+Status: **progress sampai minggu 11** (keamanan OAuth2, API Gateway, service discovery, load balancing, message queue + worker, anti tiket ganda). Tersedia juga antarmuka web sederhana di `http://localhost:8080/`.
 
 ## Daftar isi
 
@@ -18,9 +18,11 @@ Status: **progress sampai minggu 11** (keamanan OAuth2, API Gateway, service dis
 10. [Keamanan](#keamanan-ringkasan-untuk-laporan-44)
 11. [Message queue dan worker](#message-queue-dan-worker-minggu-11)
 12. [Service discovery dan load balancing](#service-discovery-dan-load-balancing-minggu-10)
-13. [Pemecahan masalah](#pemecahan-masalah)
-14. [Struktur proyek](#struktur-proyek)
-15. [Rencana berikutnya](#rencana-berikutnya)
+13. [Antarmuka web](#antarmuka-web)
+14. [Menjalankan test](#menjalankan-test)
+15. [Pemecahan masalah](#pemecahan-masalah)
+16. [Struktur proyek](#struktur-proyek)
+17. [Rencana berikutnya](#rencana-berikutnya)
 
 ## Arsitektur
 
@@ -303,6 +305,34 @@ Menaikkan throughput: `WORKER_CONCURRENCY` (default 1 = satu per satu) atau juml
 
 Gateway dan Worker memakai `UpstreamPool` (`src/lib/upstream.js`): di Docker Compose nama service di-resolve lewat DNS ke semua alamat replika (`DISCOVERY=dns`), disegarkan tiap 5 detik, dipantau lewat `GET /health`, lalu request dibagi round-robin hanya ke replika sehat. Jika koneksi ke satu replika gagal, request idempoten otomatis dicoba ke replika lain. Header respons `X-Instance-Id` menunjukkan replika yang melayani, berguna untuk membuktikan load balancing saat pengujian. `GET /admin/upstreams` (admin) menampilkan replika yang ditemukan beserta status sehatnya.
 
+## Antarmuka web
+
+Gateway menyajikan antarmuka web sederhana (folder `public/`, tanpa build step) di **`http://localhost:8080/`** (atau URL deployment gateway). Halaman ini hanya memakai API publik lewat gateway, jadi sekaligus menjadi klien contoh untuk OAuth2, katalog, dan pemesanan asinkron.
+
+| Fitur | Keterangan |
+|---|---|
+| Daftar / Masuk | Memakai `POST /auth/register` dan OAuth2 password grant (client `ticketing-web`). Token disimpan di `sessionStorage`, berlaku 15 menit; setelah itu diminta masuk lagi. |
+| Katalog event | Pencarian nama/artis, filter kota, "hanya yang tersedia" (`GET /events`); tombol "Lihat tiket" memuat `GET /events/{id}` dengan stok terbaru. |
+| Pesan tiket | `POST /orders` dengan `Idempotency-Key` baru di setiap klik. Jumlah dibatasi 1-4 tiket (dan stok). |
+| Pesanan saya | `GET /orders`; status `Menunggu` berubah otomatis menjadi `Berhasil` / `Ditolak` (polling tiap 2,5 detik selama masih ada yang menunggu). |
+| Replika | Footer menampilkan header `X-Instance-Id` dari respons terakhir (untuk melihat load balancing). |
+
+Skenario uji cepat lewat UI (dengan data bersih, `docker compose down -v` lalu `up --build`): daftar akun, buka event **"Konser Uji Beban (stok terbatas)"** (stok 10), pesan 4 tiket tiga kali: dua pesanan pertama `Berhasil`, yang berikutnya `Ditolak` dengan keterangan "Stok tiket habis". Pesan lebih dari 10 kali dalam semenit untuk melihat pesan rate limit (429).
+
+Catatan keamanan: semua data dari server ditampilkan lewat `textContent` (tanpa `innerHTML`), halaman memakai CSP `script-src 'self'`, dan aset statis disajikan sebelum rate limit global sehingga tidak memakan kuota API. Fitur admin (membuat event) belum ada di UI; gunakan `POST /events` atau mutation GraphQL `createEvent`.
+
+## Menjalankan test
+
+Butuh Node 20+ dan `npm ci`. Tidak memerlukan Docker, Postgres, atau Redis (gateway diuji dengan service di belakangnya sengaja mati).
+
+```bash
+npm test               # semua test (14)
+npm run test:unit      # reservasi stok dan pemroses order
+npm run test:gateway   # rate limiting gateway (menjalankan gateway.js sungguhan)
+```
+
+Test end-to-end terhadap sistem yang berjalan ada di `scripts/smoke.mjs` (lihat [Smoke test end-to-end](#smoke-test-end-to-end)).
+
 ## Pemecahan masalah
 
 | Gejala | Penyebab dan solusi |
@@ -323,6 +353,8 @@ Melihat log: `docker compose logs <nama-service>` (mis. `gateway`, `order-servic
 src/gateway.js  src/auth-service.js  src/event-service.js  src/order-service.js  src/worker.js
 src/lib/        common.js (app, error, log)  db.js  security.js (JWT, scope)  upstream.js (discovery, LB)
                 queue.js (message queue)  orders.js (skema order, pemroses order)
+public/         index.html  style.css  app.js (antarmuka web, disajikan gateway)
+test/           orders.test.js  inventory.test.js  gateway-ratelimit.test.js  helpers.js
 docs/           openapi.yaml  schema.graphql  arsitektur.png  arsitektur.svg  keamanan-dan-protokol.md
 scripts/        smoke.mjs  gen-jwk.mjs
 Dockerfile  docker-compose.yml  .env.example  .dockerignore

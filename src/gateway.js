@@ -2,6 +2,8 @@
 // routing, service discovery + load balancing, dan pemblokiran endpoint internal.
 import http from 'node:http';
 import https from 'node:https';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
 import cors from 'cors';
 import { Redis } from 'ioredis';
 import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
@@ -128,6 +130,20 @@ app.use(cors({ origin: envList('CORS_ORIGINS', []).length ? envList('CORS_ORIGIN
 
 // Publik: sengaja minimal (tanpa alamat internal replika). Detail upstream ada di /admin/upstreams (khusus admin).
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'gateway' }));
+
+// Antarmuka web sederhana (folder public/). Disajikan sebelum rate limit global agar aset statis tidak
+// menghabiskan kuota API. CSP khusus halaman ini: hanya skrip dan gaya dari origin sendiri; tanpa
+// upgrade-insecure-requests (default helmet) supaya tetap berjalan di http://localhost.
+const UI_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+  + "base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), {
+  index: 'index.html',
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.setHeader('Content-Security-Policy', UI_CSP);
+    res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 app.use(globalLimiter);
 

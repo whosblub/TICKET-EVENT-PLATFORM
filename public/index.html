@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tiket Konser - Kelompok B</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Tiket Konser</h1>
+    <div id="userbox" class="userbox" hidden>
+      <span id="who"></span>
+      <button id="logout" type="button" class="btn small ghost">Keluar</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Masuk / Daftar -->
+    <section id="view-auth" class="card narrow">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-auth-tab="login">Masuk</button>
+        <button type="button" class="tab" data-auth-tab="register">Daftar</button>
+      </div>
+
+      <form id="form-login" class="form" autocomplete="on">
+        <label>Email
+          <input name="email" type="email" required autocomplete="username" placeholder="budi@example.com">
+        </label>
+        <label>Password
+          <input name="password" type="password" required autocomplete="current-password">
+        </label>
+        <button class="btn" type="submit">Masuk</button>
+      </form>
+
+      <form id="form-register" class="form" autocomplete="on" hidden>
+        <label>Nama
+          <input name="name" type="text" maxlength="100" autocomplete="name" placeholder="Budi">
+        </label>
+        <label>Email
+          <input name="email" type="email" required autocomplete="username">
+        </label>
+        <label>Password <small>(minimal 8 karakter)</small>
+        <input name="password" type="password" required minlength="8" maxlength="72" autocomplete="new-password">
+        </label>
+        <button class="btn" type="submit">Daftar dan masuk</button>
+      </form>
+    </section>
+
+    <!-- Aplikasi -->
+    <section id="view-app" hidden>
+      <nav class="tabs main-tabs" role="tablist">
+        <button type="button" class="tab active" data-tab="events">Event</button>
+        <button type="button" class="tab" data-tab="orders">Pesanan saya</button>
+      </nav>
+
+      <div id="panel-events">
+        <form id="form-filter" class="filter card">
+          <input name="q" type="search" placeholder="Cari nama event / artis" maxlength="100">
+          <input name="city" type="text" placeholder="Kota (mis. Jakarta)" maxlength="100">
+          <label class="check"><input name="onlyAvailable" type="checkbox"> Hanya yang tersedia</label>
+          <button class="btn" type="submit">Cari</button>
+        </form>
+        <div id="events-list" class="grid"></div>
+      </div>
+
+      <div id="panel-orders" hidden>
+        <div class="row-between">
+          <h2>Pesanan saya</h2>
+          <button id="refresh-orders" type="button" class="btn small">Muat ulang</button>
+        </div>
+        <p class="muted">Pesanan diproses asinkron lewat antrian: status awal <b>Menunggu</b>, lalu berubah menjadi <b>Berhasil</b> atau <b>Ditolak</b>. Halaman ini memperbarui otomatis.</p>
+        <div id="orders-list" class="card table-wrap"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="served" class="muted"></span>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

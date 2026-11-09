@@ -4,12 +4,13 @@
 //  - JWT RS256 + JWKS, registrasi, /auth/me
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import { z } from 'zod';
 import { SignJWT, jwtVerify, importJWK, exportJWK, generateKeyPair, calculateJwkThumbprint } from 'jose';
 import crypto from 'node:crypto';
 import { setService, createApp, finishApp, listen, env, envInt, log, wrap, validate, sendError, assertSecrets } from './lib/common.js';
 import { createPool, waitForDb, migrate } from './lib/db.js';
 import { authenticate } from './lib/security.js';
+import { ROLE_SCOPES, SERVICE_SCOPES, narrowScopes, clientCredentialsFrom } from './lib/oauth.js';
+import { registerSchema } from './lib/schemas.js';
 setService('auth-service');
 
 const ISSUER = env('AUTH_ISSUER', 'ticketing-auth');
@@ -22,11 +23,6 @@ const ORDER_SECRET = env('ORDER_SERVICE_CLIENT_SECRET', '');
 assertSecrets({ ORDER_SERVICE_CLIENT_SECRET: ORDER_SECRET, ADMIN_PASSWORD, JWT_PRIVATE_JWK_B64: env('JWT_PRIVATE_JWK_B64') });
 if (!ORDER_SECRET) throw new Error('ORDER_SERVICE_CLIENT_SECRET wajib diatur');
 
-const ROLE_SCOPES = {
-  user: ['events:read', 'orders:read', 'orders:write'],
-  admin: ['events:read', 'events:write', 'orders:read', 'orders:write'],
-};
-const SERVICE_SCOPES = ['inventory:write', 'inventory:read'];
 const COST = 10;
 const DUMMY_HASH = bcrypt.hashSync('dummy-password-untuk-waktu-konstan', COST);
 
@@ -113,22 +109,6 @@ const oauthError = (res, status, error, description) => {
   return res.status(status).json({ error, error_description: description });
 };
 
-function clientCredentialsFrom(req) {
-  const basic = /^Basic ([A-Za-z0-9+/=]+)$/.exec(req.headers.authorization || '');
-  if (basic) {
-    const raw = Buffer.from(basic[1], 'base64').toString('utf8');
-    const i = raw.indexOf(':');
-    if (i > 0) return { id: decodeURIComponent(raw.slice(0, i)), secret: decodeURIComponent(raw.slice(i + 1)) };
-  }
-  return { id: req.body.client_id, secret: req.body.client_secret };
-}
-
-function narrowScopes(allowed, requested) {
-  if (!requested) return allowed;
-  const want = String(requested).split(' ').filter(Boolean);
-  return allowed.filter((s) => want.includes(s));
-}
-
 // ---- App ----
 const app = createApp('auth-service');
 app.get('/health', wrap(async (req, res) => {
@@ -139,12 +119,6 @@ app.get('/health', wrap(async (req, res) => {
 app.get('/.well-known/jwks.json', (req, res) => {
   res.set('Cache-Control', 'public, max-age=300');
   res.json({ keys: [keys.publicJwk] });
-});
-
-const registerSchema = z.object({
-  email: z.string().trim().toLowerCase().max(254).pipe(z.email()),
-  password: z.string().min(8, 'Minimal 8 karakter').max(72, 'Maksimal 72 karakter'),
-  name: z.string().trim().min(1).max(100).optional(),
 });
 
 app.post('/auth/register', express.json({ limit: '10kb' }), wrap(async (req, res) => {

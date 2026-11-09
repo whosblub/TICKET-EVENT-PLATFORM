@@ -1,0 +1,148 @@
+'use strict';
+
+Object.defineProperty(exports, '__esModule', {
+  value: true,
+});
+exports.MaxIntrospectionDepthRule = MaxIntrospectionDepthRule;
+
+var _GraphQLError = require('../../error/GraphQLError.js');
+
+var _kinds = require('../../language/kinds.js');
+
+/** @category Validation Rules */
+const MAX_LISTS_DEPTH = 3;
+/**
+ * Implements the max introspection depth validation rule.
+ * @param context - The validation context used while checking the document.
+ * @returns A visitor that reports validation errors for this rule.
+ * @example
+ * ```ts
+ * import { buildSchema, parse, validate } from 'graphql';
+ * import { MaxIntrospectionDepthRule } from 'graphql/validation';
+ *
+ * const schema = buildSchema(`
+ *   type Query {
+ *     name: String
+ *   }
+ * `);
+ *
+ * const invalidDocument = parse(`
+ *   { __schema { types { fields { type { fields { type { fields { name } } } } } } } }
+ * `);
+ * const invalidErrors = validate(schema, invalidDocument, [
+ *   MaxIntrospectionDepthRule,
+ * ]);
+ *
+ * invalidErrors.length; // => 1
+ *
+ * const validDocument = parse(`
+ *   { __schema { queryType { name } } }
+ * `);
+ * const validErrors = validate(schema, validDocument, [
+ *   MaxIntrospectionDepthRule,
+ * ]); // => []
+ * ```
+ */
+
+function MaxIntrospectionDepthRule(context) {
+  // For each fragment, the greatest entry depth at which its check completed
+  // without reaching the limit. Shared across root checks.
+  // Entry depth is the list depth before entering the fragment.
+  const checkedFragments = Object.create(null); // For each fragment, the smallest entry depth at which its check reached
+  // the limit. Shared across root checks.
+
+  const exceededFragments = Object.create(null);
+  /**
+   * Counts the depth of list fields in "__Type" recursively and
+   * returns `true` if the limit has been reached.
+   *
+   * @internal
+   */
+
+  function checkDepth(node, visitedFragments, depth = 0) {
+    if (node.kind === _kinds.Kind.FRAGMENT_SPREAD) {
+      const fragmentName = node.name.value;
+      const exceededEntryDepth = exceededFragments[fragmentName]; // A check that reached the limit will also do so when repeated at an
+      // equal or greater entry depth.
+
+      if (exceededEntryDepth !== undefined && exceededEntryDepth <= depth) {
+        return true;
+      }
+
+      const visitedEntryDepth = visitedFragments[fragmentName];
+      const checkedEntryDepth = checkedFragments[fragmentName]; // At equal or shallower entry depths, skip revisits to break cycles
+      // or reuse a completed successful check.
+
+      if (
+        (visitedEntryDepth !== undefined && visitedEntryDepth >= depth) ||
+        (checkedEntryDepth !== undefined && checkedEntryDepth >= depth)
+      ) {
+        return false;
+      }
+
+      const fragment = context.getFragment(fragmentName);
+
+      if (!fragment) {
+        // Missing fragments checks are handled by `KnownFragmentNamesRule`.
+        return false;
+      }
+
+      visitedFragments[fragmentName] = depth;
+
+      if (checkDepth(fragment, visitedFragments, depth)) {
+        exceededFragments[fragmentName] = depth;
+        return true;
+      }
+
+      checkedFragments[fragmentName] = depth;
+      return false;
+    }
+
+    if (
+      node.kind === _kinds.Kind.FIELD && // check all introspection lists
+      (node.name.value === 'fields' ||
+        node.name.value === 'interfaces' ||
+        node.name.value === 'possibleTypes' ||
+        node.name.value === 'inputFields')
+    ) {
+      // eslint-disable-next-line no-param-reassign
+      depth++;
+
+      if (depth >= MAX_LISTS_DEPTH) {
+        return true;
+      }
+    } // handles fields and inline fragments
+
+    if ('selectionSet' in node && node.selectionSet) {
+      for (const child of node.selectionSet.selections) {
+        if (checkDepth(child, visitedFragments, depth)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  return {
+    Field(node) {
+      if (node.name.value === '__schema' || node.name.value === '__type') {
+        // For each fragment, the greatest entry depth at which it was visited
+        // during this root check, including visits still in progress.
+        const visitedFragments = Object.create(null);
+
+        if (checkDepth(node, visitedFragments)) {
+          context.reportError(
+            new _GraphQLError.GraphQLError(
+              'Maximum introspection depth exceeded',
+              {
+                nodes: [node],
+              },
+            ),
+          );
+          return false;
+        }
+      }
+    },
+  };
+}

@@ -3,13 +3,15 @@
 import fs from 'node:fs';
 import express from 'express';
 import { z } from 'zod';
-import { buildSchema, parse, validate as gqlValidate, execute, specifiedRules, GraphQLError, Kind } from 'graphql';
+import { buildSchema, parse, validate as gqlValidate, execute, specifiedRules, GraphQLError } from 'graphql';
 import { setService, createApp, finishApp, listen, env, envInt, log, wrap, validate, HttpError } from './lib/common.js';
 import { createPool, waitForDb, migrate, withTx } from './lib/db.js';
 import { createVerifier, authenticate, requireScopes, requireRole } from './lib/security.js';
+import { listSchema, eventInput, reservationSchema } from './lib/schemas.js';
+import { reserve } from './lib/inventory.js';
+import { createLimitsRule, gqlError } from './lib/graphql-limits.js';
 setService('event-service');
 
-const STATUSES = ['UPCOMING', 'ON_SALE', 'ENDED', 'CANCELLED'];
 const MAX_DEPTH = envInt('GRAPHQL_MAX_DEPTH', 5);
 const MAX_FIELDS = envInt('GRAPHQL_MAX_FIELDS', 100);
 
@@ -73,42 +75,6 @@ await migrate(pool, 7002, async (c) => {
   }
 });
 
-// ---- Skema validasi (dipakai REST dan GraphQL) ----
-const boolLike = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')]);
-const listSchema = z.object({
-  q: z.string().trim().min(1).max(100).optional(),
-  city: z.string().trim().min(1).max(100).optional(),
-  category: z.string().trim().min(1).max(50).optional(),
-  status: z.enum(STATUSES).optional(),
-  onlyAvailable: boolLike.optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  offset: z.coerce.number().int().min(0).max(100000).default(0),
-});
-
-const eventInput = z.object({
-  name: z.string().trim().min(1).max(200),
-  artist: z.string().trim().min(1).max(200),
-  venue: z.string().trim().min(1).max(200),
-  city: z.string().trim().min(1).max(100),
-  category: z.string().trim().min(1).max(50),
-  description: z.string().max(2000).nullish(),
-  startsAt: z.iso.datetime({ offset: true }),
-  status: z.enum(STATUSES).nullish(),
-  ticketTypes: z.array(z.object({
-    name: z.string().trim().min(1).max(100),
-    price: z.number().min(0).max(1_000_000_000),
-    total: z.number().int().min(1).max(1_000_000),
-  })).min(1).max(10),
-}).refine((e) => new Set(e.ticketTypes.map((t) => t.name.toLowerCase())).size === e.ticketTypes.length, {
-  message: 'Nama jenis tiket harus unik', path: ['ticketTypes'],
-});
-
-const reservationSchema = z.object({
-  orderId: z.uuid(),
-  ticketTypeId: z.uuid(),
-  quantity: z.number().int().min(1).max(100),
-});
-
 // ---- Akses data ----
 const escapeLike = (s) => s.replace(/[\\%_]/g, '\\$&');
 
@@ -166,69 +132,11 @@ async function createEvent(input) {
   });
 }
 
-/**
- * Reservasi stok atomik dan idempoten.
- *  - INSERT reservasi (kunci order_id) + UPDATE ... WHERE available >= qty dalam satu transaksi.
- *  - Permintaan bersamaan pada baris stok yang sama diserialkan oleh row lock PostgreSQL -> tidak ada oversell.
- *  - Order yang sama dikirim ulang (retry/worker) -> hasil sama, stok tidak berkurang lagi.
- */
-async function reserve({ orderId, ticketTypeId, quantity }) {
-  return withTx(pool, async (c) => {
-    const tt = (await c.query('SELECT event_id, price FROM events.ticket_types WHERE id=$1', [ticketTypeId])).rows[0];
-    if (!tt) throw new HttpError(404, 'TICKET_TYPE_NOT_FOUND', 'Jenis tiket tidak ditemukan');
-    const ins = await c.query(
-      'INSERT INTO events.reservations(order_id, ticket_type_id, quantity) VALUES ($1,$2,$3) ON CONFLICT (order_id) DO NOTHING RETURNING order_id',
-      [orderId, ticketTypeId, quantity],
-    );
-    const created = ins.rowCount === 1;
-    if (created) {
-      const upd = await c.query('UPDATE events.ticket_types SET available = available - $2 WHERE id=$1 AND available >= $2', [ticketTypeId, quantity]);
-      if (upd.rowCount === 0) throw new HttpError(409, 'INSUFFICIENT_STOCK', 'Stok tiket tidak mencukupi'); // ROLLBACK membatalkan reservasi
-    }
-    return { created, body: { orderId, eventId: tt.event_id, ticketTypeId, quantity, unitPrice: Number(tt.price) } };
-  });
-}
-
 // ---- GraphQL ----
 const schema = buildSchema(fs.readFileSync(new URL('../docs/schema.graphql', import.meta.url), 'utf8'));
 
-const gqlError = (message, code, extra = {}) => new GraphQLError(message, { extensions: { code, ...extra } });
-
 /** Membatasi kedalaman dan jumlah field (alias ikut dihitung) agar query mahal ditolak sebelum dieksekusi. */
-function limitsRule(context) {
-  const LIMIT = Symbol('limit');
-  return {
-    Document(doc) {
-      const frags = new Map();
-      for (const d of doc.definitions) if (d.kind === Kind.FRAGMENT_DEFINITION) frags.set(d.name.value, d);
-      let fields = 0;
-      let maxDepth = 0;
-      const walk = (set, depth, stack) => {
-        for (const sel of set.selections) {
-          if (sel.kind === Kind.FIELD) {
-            if (sel.name.value.startsWith('__')) continue; // introspeksi tidak dihitung
-            fields += 1;
-            maxDepth = Math.max(maxDepth, depth + 1);
-            if (fields > MAX_FIELDS || maxDepth > MAX_DEPTH) throw LIMIT;
-            if (sel.selectionSet) walk(sel.selectionSet, depth + 1, stack);
-          } else if (sel.kind === Kind.INLINE_FRAGMENT) {
-            walk(sel.selectionSet, depth, stack);
-          } else if (sel.kind === Kind.FRAGMENT_SPREAD) {
-            const f = frags.get(sel.name.value);
-            if (f && !stack.has(f.name.value)) walk(f.selectionSet, depth, new Set([...stack, f.name.value]));
-          }
-        }
-      };
-      try {
-        for (const op of doc.definitions) if (op.kind === Kind.OPERATION_DEFINITION) walk(op.selectionSet, 0, new Set());
-      } catch (e) {
-        if (e !== LIMIT) throw e;
-        context.reportError(gqlError(`Query terlalu kompleks (maksimum kedalaman ${MAX_DEPTH}, maksimum ${MAX_FIELDS} field)`, 'QUERY_TOO_COMPLEX'));
-      }
-      return false;
-    },
-  };
-}
+const limitsRule = createLimitsRule({ maxDepth: MAX_DEPTH, maxFields: MAX_FIELDS });
 
 const cleanArgs = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined));
 
@@ -310,7 +218,7 @@ app.post('/graphql', auth, requireScopes('events:read'), express.json({ limit: '
 }));
 
 app.post('/internal/reservations', auth, requireRole('service'), requireScopes('inventory:write'), express.json({ limit: '5kb' }), wrap(async (req, res) => {
-  const { created, body } = await reserve(validate(reservationSchema, req.body ?? {}));
+  const { created, body } = await reserve(pool, validate(reservationSchema, req.body ?? {}));
   res.status(created ? 201 : 200).json(body);
 }));
 

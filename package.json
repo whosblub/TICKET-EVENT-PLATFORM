@@ -14,7 +14,10 @@
     "start:order": "node src/order-service.js",
     "start:worker": "node src/worker.js",
     "smoke": "node scripts/smoke.mjs",
-    "gen:jwk": "node scripts/gen-jwk.mjs"
+    "gen:jwk": "node scripts/gen-jwk.mjs",
+    "test": "node --test",
+    "test:unit": "node --test test/common.test.js test/security.test.js test/upstream.test.js test/orders.test.js test/queue.test.js test/schemas.test.js test/graphql-limits.test.js test/inventory.test.js test/oauth.test.js",
+    "test:gateway": "node --test test/gateway-ratelimit.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -8,6 +8,7 @@ import { createPool, waitForDb } from './lib/db.js';
 import { createVerifier, authenticate, requireScopes, requireRole } from './lib/security.js';
 import { migrateOrders } from './lib/orders.js';
 import { createOrderQueue, enqueueOrder } from './lib/queue.js';
+import { createOrderSchema } from './lib/schemas.js';
 setService('order-service');
 
 const PORT_DEFAULT = 4002;
@@ -41,10 +42,7 @@ app.get('/health', wrap(async (req, res) => {
   res.json({ status: 'ok', service: 'order-service' });
 }));
 
-const createSchema = z.object({
-  ticketTypeId: z.uuid(),
-  quantity: z.number().int().min(1).max(MAX_TICKETS_PER_ORDER),
-});
+const createSchema = createOrderSchema(MAX_TICKETS_PER_ORDER);
 
 /**
  * Asinkron: 202 Accepted + status PENDING. Hasil akhir (CONFIRMED/REJECTED) dibaca lewat GET /orders/{id}.

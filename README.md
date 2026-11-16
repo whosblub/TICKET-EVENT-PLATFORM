@@ -2,10 +2,85 @@
 
 Sistem tiket berbasis microservices untuk proyek lintas mata kuliah **Web Service x Software Testing**.
 
-Status: **progress sampai minggu 11** (keamanan OAuth2, API Gateway, service discovery, load balancing, message queue + worker, anti tiket ganda). Tersedia juga antarmuka web sederhana di `http://localhost:8080/`.
+Status: **code freeze minggu 12** (keamanan OAuth2, API Gateway, service discovery, load balancing, message queue + worker, anti tiket ganda). Tersedia juga antarmuka web sederhana di `http://localhost:8080/`.
+
+## URL deployment
+
+Sistem berjalan di Railway. **Satu-satunya pintu masuk publik adalah gateway:**
+
+`https://tp-gateway-production-9a0d.up.railway.app`
+
+- Cek status: `GET https://tp-gateway-production-9a0d.up.railway.app/health` -> `{"status":"ok","service":"gateway"}`
+- Antarmuka web: buka URL di atas di browser.
+- API: lihat [Daftar endpoint](#daftar-endpoint) dan `docs/openapi.yaml` (server sudah mengarah ke URL ini).
+- Akun admin deployment diberikan terpisah kepada kelompok penguji (tidak ditulis di repository).
+
+## Paket serah-terima (code freeze)
+
+| Item | Isi |
+|---|---|
+| Tag freeze | `v1.0-freeze` (nama tag dan **hash commit** tercantum di GitHub Release, bukan di file ini karena hash baru ada setelah tag dibuat) |
+| Branch freeze | `code-freeze` (lingkungan uji Railway dibangun dari branch ini; `master` bebas berkembang tanpa memengaruhi sistem yang diuji) |
+| URL deployment | `https://tp-gateway-production-9a0d.up.railway.app` |
+| Spesifikasi | `docs/openapi.yaml` (REST), `docs/schema.graphql` (GraphQL, dengan contoh query/mutation) |
+| Dokumentasi interaktif (Swagger UI) | [ISI: URL Vercel]; sumber di folder `swagger-ui/`. Alternatif: impor `docs/openapi.yaml` ke Postman |
+| Environment variable | [Daftar environment variable](#daftar-environment-variable) dan `.env.example` (hanya placeholder) |
+| Penanggung jawab teknis | [ISI: nama dan kontak anggota Kelompok B] |
+| Kredensial uji | Dikirim terpisah ke Kelompok C: 1 akun admin khusus penguji dan akun user uji. Bukan akun yang dipakai pembangun. |
+| Formulir serah-terima | `docs/formulir-serah-terima.md` |
+| Templat issue bug | `.github/ISSUE_TEMPLATE/bug.md` |
+
+### Data uji dan cara reset
+
+Event seed: **Konser Uji Beban** (stok 10), Jakarta Rock Festival, Malam Jazz Senayan, Surabaya Pop Night, Bandung Indie Fest.
+
+Mengembalikan semua stok ke nilai awal dan menghapus semua pesanan/reservasi (akun tidak disentuh):
+
+```bash
+# butuh Node 20+, npm ci, dan connection string PUBLIK Postgres dari Railway Dashboard
+DATABASE_URL='postgres://...' node scripts/reset-test-data.mjs            # dry run (hanya menampilkan rencana)
+DATABASE_URL='postgres://...' node scripts/reset-test-data.mjs --yes      # jalankan
+DATABASE_URL='postgres://...' node scripts/reset-test-data.mjs --yes --purge-events   # sekaligus hapus event buatan penguji
+```
+
+Alternatif tanpa skrip: admin membuat event baru dengan stok 10 lewat `POST /events` (cukup untuk satu putaran TC-034).
+
+Membuat akun admin khusus penguji:
+
+```bash
+DATABASE_URL='postgres://...' node scripts/create-admin.mjs penguji-admin@example.com 'PasswordKuat123!' 'Admin Penguji'
+```
+
+### Catatan untuk penguji
+
+- **Uji 30 pesanan serentak (stok 10):** `POST /orders` dibatasi 10 per menit **per pengguna**, jadi gunakan minimal 3 akun user (mis. 3 akun x 10 request). Satu akun saja akan mendapat `429` setelah 10 request. Contoh pola ada di `scripts/smoke.mjs`. Pembatasan pendaftaran: 20 per 5 menit per IP.
+- **Uji beban lebih besar:** pembangun dapat menaikkan `RATE_LIMIT_ORDER_PER_MIN` (dan `RATE_LIMIT_GLOBAL_PER_MIN`) di Railway selama jendela uji yang disepakati. Nilai yang dilonggarkan dicatat di GitHub Release.
+- **Rate limit global (300/menit/IP):** `GET /health` dan file statis web berada di luar limiter ini. Gunakan endpoint lain (mis. `GET /auth/me`) untuk menguji batas global; request ke-301 mendapat `429`.
+- **Batas kedalaman GraphQL (5):** skema ini hanya memiliki kedalaman maksimum 4, jadi batas kedalaman tidak dapat terlampaui. Uji `QUERY_TOO_COMPLEX` lewat jumlah field >100 (alias dihitung).
+- **Event yang tidak berstatus `ON_SALE`:** pesanan diterima `202`, lalu `REJECTED` dengan reason `EVENT_NOT_ON_SALE`.
+- **Cold start:** setelah deploy ulang atau lama idle, request pertama bisa lambat; panggil `GET /health` beberapa kali sebelum uji performa.
+- **Token tetap valid setelah restart** hanya jika `JWT_PRIVATE_JWK_B64` diisi di auth-service (pembangun memastikan variabel ini terisi di Railway).
+
+### Keterbatasan yang diketahui
+
+- Pembatalan pesanan, refund, dan pelepasan reservasi stok belum tersedia. Pesanan `PROCESSING_FAILED` dapat meninggalkan stok tertahan (kesalahan ke arah "kurang jual", bukan oversell).
+- Rate limiter bersifat fail-open bila Redis mati (ketersediaan didahulukan).
+- Tidak ada antarmuka admin di web; fitur admin hanya lewat API (`POST /events`, mutation `createEvent`, `GET /admin/upstreams`).
+- Grant `password` untuk client publik (produksi sebaiknya Authorization Code + PKCE).
+
+### Perubahan setelah freeze
+
+Setiap commit di branch `code-freeze` setelah tag harus merujuk satu issue (mis. `Fix #7: validasi stok negatif`). Pemeriksaan:
+
+```bash
+git for-each-ref refs/tags/v1.0-freeze --format='%(taggerdate:iso)'   # waktu tag
+git log v1.0-freeze..origin/code-freeze --oneline                      # tiap pesan harus menyebut issue
+git log v1.0-freeze..origin/master --oneline                           # informasi, bukan pelanggaran
+```
 
 ## Daftar isi
 
+0. [Paket serah-terima (code freeze)](#paket-serah-terima-code-freeze)
 1. [Arsitektur](#arsitektur)
 2. [Teknologi](#teknologi)
 3. [Menjalankan dengan Docker](#menjalankan-dengan-docker)
@@ -14,7 +89,7 @@ Status: **progress sampai minggu 11** (keamanan OAuth2, API Gateway, service dis
 6. [Data awal untuk pengujian](#data-awal-untuk-pengujian)
 7. [Memeriksa database](#memeriksa-database)
 8. [Daftar environment variable](#daftar-environment-variable)
-9. [Deployment](#deployment-render--neon--upstash)
+9. [Deployment](#deployment-railway)
 10. [Keamanan](#keamanan-ringkasan-untuk-laporan-44)
 11. [Message queue dan worker](#message-queue-dan-worker-minggu-11)
 12. [Service discovery dan load balancing](#service-discovery-dan-load-balancing-minggu-10)
@@ -96,7 +171,7 @@ Batasan yang diketahui (untuk dibahas di laporan): jika Event Service sempat ber
 | Protokol | REST dan GraphQL (`graphql`) |
 | Keamanan HTTP | `helmet`, `cors`, `express-rate-limit` + `rate-limit-redis` |
 | Kontainerisasi | Docker dan Docker Compose |
-| Deployment | Render (service), Neon (Postgres), Upstash (Redis) |
+| Deployment | Railway (semua service) |
 
 ## Menjalankan dengan Docker
 
@@ -120,7 +195,7 @@ Butuh Node 20+ di mesin host.
 
 ```bash
 node scripts/smoke.mjs                       # melawan http://localhost:8080
-BASE_URL=https://url-deploy node scripts/smoke.mjs
+BASE_URL=https://tp-gateway-production-9a0d.up.railway.app node scripts/smoke.mjs
 ```
 
 Smoke test memeriksa autentikasi, otorisasi, GraphQL, load balancing, 30 pemesanan bersamaan terhadap stok 10 (diterima `202`, lalu menunggu Worker: tepat 10 `CONFIRMED`, 20 `REJECTED`), idempotensi, dan rate limit.
@@ -261,14 +336,14 @@ Lengkap dengan placeholder di [`.env.example`](.env.example). Variabel wajib per
 
 Semua service: `ENFORCE_SECRETS=true` membuat service menolak start jika secret kosong, terlalu pendek, atau masih default. **Wajib aktif pada deployment publik.** Buat kunci JWT dengan `npm run gen:jwk`.
 
-## Deployment (Render + Neon + Upstash)
+## Deployment (Railway)
 
-1. Neon: buat database Postgres, salin connection string ke `DATABASE_URL` (tambahkan `?sslmode=require`; tabel dibuat otomatis saat service pertama kali start).
-2. Upstash (atau Redis lain): salin URL `rediss://...` ke `REDIS_URL` **gateway, order-service, dan worker** (satu Redis yang sama). Message queue wajib Redis; Upstash gratis memiliki batas jumlah perintah harian, jadi pantau pemakaian dan jangan menjalankan uji beban panjang tanpa memeriksa kuota. Bila memakai Redis sendiri, atur `maxmemory-policy noeviction`.
-3. Render: buat 4 Web Service dari repo yang sama (build `npm install`, start `node src/<service>.js`), ditambah **worker** (`node src/worker.js`) sebagai *Background Worker*. Jika memakai tier gratis (tidak ada Background Worker), buat sebagai Web Service: worker membuka `GET /health` otomatis bila `PORT` diatur; pantau URL itu dengan layanan ping (mis. UptimeRobot) agar tidak tidur, karena worker yang tidur berarti pesanan menumpuk `PENDING`. Isi `DISCOVERY=static` dan URL publik antarlayanan (mis. `EVENT_SERVICE_URLS=https://event-service-xxxx.onrender.com`). Isi `TRUST_PROXY=1` pada gateway, `ENFORCE_SECRETS=true` di semua service, dan `JWT_PRIVATE_JWK_B64` (hasil `npm run gen:jwk`) di auth-service. Ganti `ADMIN_PASSWORD` dan `ORDER_SERVICE_CLIENT_SECRET`.
+1. Database: buat PostgreSQL (plugin Railway atau layanan lain), salin connection string ke `DATABASE_URL` di **auth-service, event-service, order-service, dan worker**. Tabel dibuat otomatis saat service pertama kali start.
+2. Redis: salin URL ke `REDIS_URL` di **gateway, order-service, dan worker** (satu Redis yang sama). Message queue wajib Redis; bila memakai Redis sendiri, atur `maxmemory-policy noeviction`.
+3. Buat 5 service dari repo yang sama (`npm install`; start `node src/<service>.js`): `gateway`, `auth-service`, `event-service`, `order-service`, dan `worker` (`node src/worker.js`, tidak perlu domain publik). Isi `DISCOVERY=static` dan URL antarlayanan (`AUTH_JWKS_URL`, `AUTH_SERVICE_URLS`, `EVENT_SERVICE_URLS`, `ORDER_SERVICE_URLS`). Worker wajib memiliki `EVENT_SERVICE_URLS`, `AUTH_SERVICE_URLS`, dan `ORDER_SERVICE_CLIENT_SECRET` yang sama dengan auth-service. Isi `TRUST_PROXY=1` pada gateway, `ENFORCE_SECRETS=true` di semua service, dan `JWT_PRIVATE_JWK_B64` (hasil `npm run gen:jwk`) di auth-service. Ganti `ADMIN_PASSWORD` dan `ORDER_SERVICE_CLIENT_SECRET`.
 4. Hanya URL gateway yang diberikan kepada kelompok penguji.
 
-**Catatan untuk penguji:** pada tier gratis Render, service tidur setelah tidak aktif sehingga request pertama bisa lambat (cold start). Panggil `GET /health` beberapa kali sebelum pengujian performa.
+**Catatan untuk penguji:** bila service baru saja di-deploy ulang atau lama tidak dipakai, panggil `GET /health` beberapa kali sebelum pengujian performa.
 
 ## Keamanan (ringkasan untuk laporan 4.4)
 
@@ -326,7 +401,7 @@ Catatan keamanan: semua data dari server ditampilkan lewat `textContent` (tanpa 
 Butuh Node 20+ dan `npm ci`. Tidak memerlukan Docker, Postgres, atau Redis (gateway diuji dengan service di belakangnya sengaja mati).
 
 ```bash
-npm test               # semua test (14)
+npm test               # semua test (15)
 npm run test:unit      # reservasi stok dan pemroses order
 npm run test:gateway   # rate limiting gateway (menjalankan gateway.js sungguhan)
 ```
@@ -356,11 +431,11 @@ src/lib/        common.js (app, error, log)  db.js  security.js (JWT, scope)  up
 public/         index.html  style.css  app.js (antarmuka web, disajikan gateway)
 test/           orders.test.js  inventory.test.js  gateway-ratelimit.test.js  helpers.js
 docs/           openapi.yaml  schema.graphql  arsitektur.png  arsitektur.svg  keamanan-dan-protokol.md
-scripts/        smoke.mjs  gen-jwk.mjs
+scripts/        smoke.mjs  gen-jwk.mjs  reset-test-data.mjs  create-admin.mjs
 Dockerfile  docker-compose.yml  .env.example  .dockerignore
 ```
 
 ## Rencana berikutnya
 
-- Minggu 12: code freeze, finalisasi dokumentasi dan URL deployment.
+- Minggu 12: code freeze (dokumentasi dan URL deployment sudah final).
 - Pengembangan lanjutan (di luar tugas): endpoint pelepasan reservasi untuk pesanan `PROCESSING_FAILED`, Authorization Code + PKCE.

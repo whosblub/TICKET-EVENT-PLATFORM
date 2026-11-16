@@ -1,15 +1,15 @@
 openapi: 3.0.3
 info:
   title: Platform Tiket Event/Konser (Kelompok B)
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Semua akses lewat API Gateway. Endpoint GraphQL ada di POST /graphql (lihat docs/schema.graphql).
     Endpoint /internal/* tidak dapat dijangkau dari luar (gateway mengembalikan 404).
 servers:
+  - url: https://tp-gateway-production-9a0d.up.railway.app
+    description: Deployment (Railway)
   - url: http://localhost:8080
     description: Lokal (Docker Compose)
-  - url: https://GANTI-DENGAN-URL-GATEWAY
-    description: Deployment
 security:
   - bearerAuth: []
 tags:
@@ -297,6 +297,6 @@ components:
         unitPrice: { type: number, nullable: true }
         totalPrice: { type: number, nullable: true }
         status: { type: string, enum: [PENDING, CONFIRMED, REJECTED], description: 'PENDING = antri/sedang diproses; CONFIRMED = tiket didapat; REJECTED = ditolak (lihat reason)' }
-        reason: { type: string, nullable: true, description: 'Terisi bila REJECTED: INSUFFICIENT_STOCK, TICKET_TYPE_NOT_FOUND, atau PROCESSING_FAILED (layanan stok gagal setelah semua percobaan ulang)' }
+        reason: { type: string, nullable: true, description: 'Terisi bila REJECTED: INSUFFICIENT_STOCK, TICKET_TYPE_NOT_FOUND, EVENT_NOT_ON_SALE, atau PROCESSING_FAILED (layanan stok gagal setelah semua percobaan ulang)' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

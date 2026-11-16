@@ -7,7 +7,7 @@ const EV = 'a0000000-0000-4000-8000-000000000001';
 
 // Database palsu yang meniru semantik PostgreSQL (transaksi, ROLLBACK, ON CONFLICT, UPDATE bersyarat)
 function fakeDb(stock) {
-  const state = { tickets: { [TT]: { event_id: EV, price: 150000, available: stock } }, reservations: new Map(), log: [] };
+  const state = { tickets: { [TT]: { event_id: EV, price: 150000, available: stock, status: 'ON_SALE' } }, reservations: new Map(), log: [] };
   return {
     state,
     async connect() {
@@ -20,7 +20,7 @@ function fakeDb(stock) {
           if (sql === 'COMMIT') { undo = []; state.log.push('COMMIT'); return {}; }
           if (sql === 'ROLLBACK') { for (const f of undo.reverse()) f(); undo = []; state.log.push('ROLLBACK'); return {}; }
           await Promise.resolve();
-          if (sql.startsWith('SELECT event_id, price')) { const t = state.tickets[p[0]]; return { rows: t ? [{ event_id: t.event_id, price: t.price }] : [] }; }
+          if (sql.startsWith('SELECT event_id, price')) { const t = state.tickets[p[0]]; return { rows: t ? [{ event_id: t.event_id, price: t.price, status: t.status }] : [] }; }
           if (sql.startsWith('INSERT INTO events.reservations')) {
             if (state.reservations.has(p[0])) return { rowCount: 0, rows: [] };
             state.reservations.set(p[0], { ticketTypeId: p[1], quantity: p[2] });
@@ -83,4 +83,11 @@ test('30 pembelian bersamaan untuk stok 10 -> tepat 10 berhasil, 20 ditolak', as
   assert.equal(results.filter((r) => r.status === 'rejected' && r.reason.code === 'INSUFFICIENT_STOCK').length, 20);
   assert.equal(db.state.tickets[TT].available, 0);
   assert.equal(db.state.reservations.size, 10);
+});
+
+test('event tidak ON_SALE -> 409 EVENT_NOT_ON_SALE dan stok tidak berubah', async () => {
+  const db = fakeDb(10);
+  db.state.tickets[TT].status = 'CANCELLED';
+  await assert.rejects(reserve(db, order(1)), (e) => e.status === 409 && e.code === 'EVENT_NOT_ON_SALE');
+  assert.equal(db.state.tickets[TT].available, 10);
 });

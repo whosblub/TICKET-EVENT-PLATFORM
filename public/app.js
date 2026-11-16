@@ -48,6 +48,8 @@
     return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   };
   const EVENT_STATUS = { ON_SALE: 'Dijual', UPCOMING: 'Segera', ENDED: 'Selesai', CANCELLED: 'Dibatalkan' };
+  const EVENT_FINAL = new Set(['ENDED', 'CANCELLED']); // sama dengan aturan server: status final tidak dapat diubah lagi
+  const MANAGE_PAGE = 10;
 
   // ---------- util DOM ----------
   function h(tag, props = {}, ...kids) {
@@ -1119,7 +1121,9 @@
   function showAdminTab(name) {
     $$('[data-atab]').forEach((x) => { x.classList.toggle('active', x.dataset.atab === name); x.setAttribute('aria-selected', String(x.dataset.atab === name)); });
     $('#admin-create').hidden = name !== 'create';
+    $('#admin-manage').hidden = name !== 'manage';
     $('#admin-upstreams').hidden = name !== 'upstreams';
+    if (name === 'manage') loadManage();
     clearInterval(upstreamTimer);
     if (name === 'upstreams') { loadUpstreams(); upstreamTimer = setInterval(() => loadUpstreams(true), 10000); }
   }
@@ -1127,6 +1131,67 @@
   function initAdmin() {
     if (!adminReady) { adminReady = true; resetEventForm(); }
     showAdminTab($('[data-atab].active')?.dataset.atab || 'create');
+  }
+
+  // ---------- admin: kelola status event ----------
+  const mgState = { offset: 0 };
+  $('#refresh-manage').addEventListener('click', () => loadManage());
+
+  async function loadManage() {
+    const list = $('#manage-list');
+    list.replaceChildren(...Array.from({ length: 3 }, () => h('div', { class: 'skel', 'aria-hidden': 'true' })));
+    try {
+      const { data } = await api('GET', `/events?limit=${MANAGE_PAGE}&offset=${mgState.offset}`);
+      const total = data.page.total;
+      if (!data.data.length && mgState.offset > 0) { mgState.offset = 0; return loadManage(); }
+      $('#manage-summary').textContent = total ? `${total} event. Status Selesai dan Dibatalkan bersifat final.` : 'Belum ada event.';
+      list.replaceChildren(...(data.data.length ? data.data.map(manageRow) : [h('div', { class: 'empty' }, h('strong', {}, 'Belum ada event'), h('span', {}, 'Buat event lewat tab Buat event.'))]));
+      renderPager($('#manage-pager'), { offset: mgState.offset, limit: MANAGE_PAGE, total }, (o) => { mgState.offset = o; loadManage(); });
+    } catch (e) {
+      if (!session) return;
+      list.replaceChildren(h('div', { class: 'empty' }, h('strong', {}, 'Daftar event gagal dimuat'), h('span', {}, e.message)));
+    }
+  }
+
+  function manageRow(ev) {
+    let current = ev.status;
+    let armed = false; // perubahan ke status final butuh klik kedua sebagai konfirmasi
+    const chip = h('span', { class: `chip ${current}` }, EVENT_STATUS[current]);
+    const sel = h('select', { 'aria-label': `Status penjualan ${ev.name}` },
+      ...Object.entries(EVENT_STATUS).map(([v, label]) => h('option', { value: v, selected: v === current }, label)));
+    const btn = h('button', { type: 'button', class: 'btn small' }, 'Simpan');
+    const sync = () => {
+      const locked = EVENT_FINAL.has(current);
+      sel.disabled = locked;
+      btn.disabled = locked || sel.value === current;
+      btn.textContent = armed ? `Yakin? Klik lagi untuk ${EVENT_STATUS[sel.value].toLowerCase()}` : 'Simpan';
+      chip.className = `chip ${current}`;
+      chip.textContent = EVENT_STATUS[current];
+    };
+    sel.addEventListener('change', () => { armed = false; sync(); });
+    btn.addEventListener('click', async () => {
+      const next = sel.value;
+      if (EVENT_FINAL.has(next) && !armed) { armed = true; sync(); return; }
+      btn.disabled = true;
+      sel.disabled = true;
+      btn.textContent = 'Menyimpan...';
+      try {
+        const { data } = await api('PATCH', `/events/${ev.id}`, { json: { status: next } });
+        current = data.status;
+        toast(`Status "${ev.name}" menjadi ${EVENT_STATUS[current]}.`, 'ok');
+      } catch (e) {
+        toast(e.status === 403 ? 'Akun ini tidak punya izin admin untuk mengubah event.' : e.message, 'err');
+        if (e.code === 'EVENT_STATUS_FINAL') loadManage(); // status sudah final di server (diubah admin lain): muat ulang daftar
+      } finally {
+        armed = false;
+        if (!EVENT_FINAL.has(current)) sel.value = current;
+        sync();
+      }
+    });
+    sync();
+    return h('div', { class: 'card manage-row' },
+      h('div', { class: 'manage-info' }, h('h3', {}, ev.name), h('div', { class: 'meta muted small' }, `${ev.artist}, ${ev.city}, ${dateShort.format(new Date(ev.startsAt))}`), chip),
+      h('div', { class: 'manage-ctl' }, sel, btn));
   }
 
   $('#refresh-upstreams').addEventListener('click', () => loadUpstreams());

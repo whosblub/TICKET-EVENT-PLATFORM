@@ -197,6 +197,35 @@ for (let t0 = Date.now(); Date.now() - t0 < 50000 && released === evBeforeReleas
 }
 ok(released === evBeforeRelease.body.ticketTypes[0].available + 1, 'pembatalan mengembalikan 1 tiket ke stok (oleh Worker)', `available ${evBeforeRelease.body.ticketTypes[0].available} -> ${released}`);
 
+// 5c. Admin mengubah status event (PATCH /events/{id}). Memakai event baru agar tidak mengganggu pengujian lain.
+const evS = await call('POST', '/events', { token: adminToken, json: { name: `Status ${run}`, artist: 'T', venue: 'V', city: 'Medan', category: 'konser', startsAt: '2027-09-01T19:00:00+07:00', ticketTypes: [{ name: 'R', price: 50000, total: 5 }] } });
+const evSId = evS.body?.id;
+const evSTt = evS.body?.ticketTypes?.[0]?.id;
+const stBuyer = await newUser('statusbuyer');
+ok((await call('PATCH', `/events/${evSId}`, { token: userToken, json: { status: 'UPCOMING' } })).status === 403, 'user biasa PATCH /events/{id} -> 403');
+ok((await call('PATCH', `/events/${evSId}`, { json: { status: 'UPCOMING' } })).status === 401, 'PATCH /events/{id} tanpa token -> 401');
+ok((await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'BUKAN_STATUS' } })).status === 400, 'status tidak dikenal -> 400');
+ok((await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'UPCOMING', name: 'diganti' } })).status === 400, 'field selain status ditolak -> 400');
+ok((await call('PATCH', '/events/bukan-uuid', { token: adminToken, json: { status: 'UPCOMING' } })).status === 400, 'id event bukan UUID -> 400');
+ok((await call('PATCH', '/events/00000000-0000-4000-8000-000000000000', { token: adminToken, json: { status: 'UPCOMING' } })).status === 404, 'event tidak ada -> 404');
+const toUpcoming = await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'UPCOMING' } });
+ok(toUpcoming.status === 200 && toUpcoming.body.status === 'UPCOMING', 'admin ON_SALE -> UPCOMING (jeda penjualan)', `status=${toUpcoming.body?.status}`);
+ok((await call('GET', `/events/${evSId}`, { token: stBuyer })).body?.status === 'UPCOMING', 'perubahan status terlihat oleh pembeli');
+const blocked = await call('POST', '/orders', { token: stBuyer, json: { ticketTypeId: evSTt, quantity: 1 } });
+const blockedFinal = blocked.status === 202 ? await waitOrder(stBuyer, blocked.body.id) : null;
+ok(blocked.status === 202 && blockedFinal?.status === 'REJECTED' && blockedFinal?.reason === 'EVENT_NOT_ON_SALE', 'pesan saat event UPCOMING -> REJECTED (EVENT_NOT_ON_SALE)', `status=${blockedFinal?.status} reason=${blockedFinal?.reason}`);
+const reopened = await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'ON_SALE' } });
+ok(reopened.status === 200 && reopened.body.status === 'ON_SALE', 'admin UPCOMING -> ON_SALE (buka lagi penjualan)');
+const reopenedOrder = await call('POST', '/orders', { token: stBuyer, json: { ticketTypeId: evSTt, quantity: 1 } });
+const reopenedFinal = reopenedOrder.status === 202 ? await waitOrder(stBuyer, reopenedOrder.body.id) : null;
+ok(reopenedFinal?.status === 'RESERVED', 'setelah dibuka lagi, pesanan -> RESERVED', `status=${reopenedFinal?.status}`);
+ok((await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'ON_SALE' } })).status === 200, 'status sama diterima (idempoten) -> 200');
+const ended = await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'ENDED' } });
+ok(ended.status === 200 && ended.body.status === 'ENDED', 'admin ON_SALE -> ENDED');
+const revive = await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'ON_SALE' } });
+ok(revive.status === 409 && revive.body.error.code === 'EVENT_STATUS_FINAL', 'ENDED bersifat final: kembali ke ON_SALE -> 409 EVENT_STATUS_FINAL');
+ok((await call('PATCH', `/events/${evSId}`, { token: adminToken, json: { status: 'ENDED' } })).status === 200, 'ENDED -> ENDED (idempoten) -> 200');
+
 // 6. Rate limiting per user pada /orders (dijalankan terakhir)
 const spammer = await newUser('spammer');
 const burst = await Promise.all(Array.from({ length: 15 }, () => call('POST', '/orders', { token: spammer, json: {} })));

@@ -132,6 +132,30 @@ paths:
         '200': { description: Detail, content: { application/json: { schema: { $ref: '#/components/schemas/Event' } } } }
         '400': { $ref: '#/components/responses/ValidationError' }
         '404': { description: Event tidak ditemukan }
+    patch:
+      tags: [Events]
+      summary: Ubah status event (admin, scope events:write)
+      description: |
+        Mengubah status penjualan event. Aturan transisi:
+        - `UPCOMING` dan `ON_SALE` dapat saling berganti (jeda atau buka kembali penjualan) dan dapat menjadi `ENDED` atau `CANCELLED`.
+        - `ENDED` dan `CANCELLED` bersifat **final**; mengubahnya ke status lain ditolak dengan `409 EVENT_STATUS_FINAL`.
+        - Mengirim status yang sama dengan status saat ini diterima (`200`, idempoten).
+
+        Hanya status yang diubah; field lain di body ditolak (`400`). Pesanan baru untuk event yang tidak `ON_SALE` berakhir `REJECTED` (`EVENT_NOT_ON_SALE`). Pesanan `RESERVED` yang sudah ada tidak berubah.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateEventStatusRequest' }
+      responses:
+        '200': { description: Event dengan status terbaru, content: { application/json: { schema: { $ref: '#/components/schemas/Event' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Event tidak ditemukan }
+        '409': { description: 'EVENT_STATUS_FINAL (status saat ini ENDED atau CANCELLED dan diminta berubah)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /graphql:
     post:
       tags: [Events]
@@ -337,6 +361,12 @@ components:
             type: object
             required: [name, price, total]
             properties: { name: { type: string }, price: { type: number }, total: { type: integer, minimum: 1 } }
+    UpdateEventStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [UPCOMING, ON_SALE, ENDED, CANCELLED], example: ENDED }
     CreateOrderRequest:
       type: object
       required: [ticketTypeId, quantity]

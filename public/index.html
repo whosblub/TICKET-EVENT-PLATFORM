@@ -170,6 +170,7 @@
         </div>
         <div class="seg" role="tablist" aria-label="Menu admin">
           <button type="button" role="tab" class="seg-btn active" data-atab="create">Buat event</button>
+          <button type="button" role="tab" class="seg-btn" data-atab="manage">Kelola event</button>
           <button type="button" role="tab" class="seg-btn" data-atab="upstreams">Status layanan</button>
         </div>
 
@@ -234,6 +235,15 @@
             <div id="event-preview"></div>
             <p class="muted small">Begini kartu event akan terlihat di katalog.</p>
           </aside>
+        </div>
+
+        <div id="admin-manage" hidden>
+          <div class="row-between">
+            <p class="muted" id="manage-summary">Memuat...</p>
+            <button type="button" class="btn small ghost" id="refresh-manage">Muat ulang</button>
+          </div>
+          <div id="manage-list" class="manage-list"></div>
+          <nav id="manage-pager" class="pager" aria-label="Halaman event" hidden></nav>
         </div>
 
         <div id="admin-upstreams" hidden>

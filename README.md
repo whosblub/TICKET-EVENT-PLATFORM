@@ -66,7 +66,7 @@ DATABASE_URL='postgres://...' node scripts/create-admin.mjs penguji-admin@exampl
 - E-tiket berupa kode dan QR saja: belum ada pemindai atau endpoint validasi di pintu masuk, jadi kode belum dapat ditandai "sudah dipakai". Satu pesanan memakai satu kode untuk semua tiketnya.
 - Pembayaran masih **simulasi** (`POST /orders/{id}/pay` tanpa penyedia pembayaran; tidak ada uang sungguhan). Refund belum tersedia, sehingga pesanan `CONFIRMED` tidak dapat dibatalkan. Stok dari pesanan yang dibatalkan atau kedaluwarsa dikembalikan Worker pada siklus sweeper berikutnya (default sampai 30 detik).
 - Rate limiter bersifat fail-open bila Redis mati (ketersediaan didahulukan).
-- Antarmuka web punya menu **Admin** (khusus role `admin`) untuk membuat event dan melihat status replika; fitur lain tetap bisa lewat API (`POST /events`, mutation `createEvent`, `GET /admin/upstreams`).
+- Antarmuka web punya menu **Admin** (khusus role `admin`) untuk membuat event, mengubah status event, dan melihat status replika; fitur lain tetap bisa lewat API (`POST /events`, `PATCH /events/{id}`, mutation `createEvent`, `GET /admin/upstreams`).
 - Grant `password` untuk client publik (produksi sebaiknya Authorization Code + PKCE).
 
 ### Perubahan setelah freeze
@@ -277,6 +277,7 @@ Spesifikasi lengkap: [`docs/openapi.yaml`](docs/openapi.yaml). Skema GraphQL bes
 | GET | `/events` | `events:read` | Daftar event (filter `q`, `city`, `category`, `status`, `onlyAvailable`, `limit`, `offset`) |
 | GET | `/events/{id}` | `events:read` | Detail event dan jenis tiket |
 | POST | `/events` | admin, `events:write` | Buat event |
+| PATCH | `/events/{id}` | admin, `events:write` | Ubah status event (body `{"status":"UPCOMING\|ON_SALE\|ENDED\|CANCELLED"}`). `UPCOMING` dan `ON_SALE` bisa saling berganti; `ENDED` dan `CANCELLED` final (`409 EVENT_STATUS_FINAL`). Status sama diterima (idempoten) |
 | POST | `/graphql` | `events:read` | Katalog via GraphQL; mutation `createEvent` khusus admin |
 | POST | `/orders` | `orders:write` | Pesan tiket. Asinkron: `202` + status `PENDING`; pantau lewat `Location` sampai `RESERVED` (stok ditahan) atau `REJECTED` |
 | GET | `/orders` | `orders:read` | Daftar pesanan sendiri |
@@ -400,7 +401,7 @@ Gateway menyajikan antarmuka web (folder `public/`, tanpa build step, tanpa font
 | Katalog event | Kartu berbentuk tiket. Filter nama/artis (otomatis saat mengetik), kota, kategori, status, dan "hanya yang masih ada tiket"; paginasi 12 event per halaman (`GET /events`). |
 | Detail event dan pemesanan | Klik kartu untuk membuka `GET /events/{id}` dengan stok terbaru: pilih jenis tiket, atur jumlah (1-4, dibatasi stok), lihat total, lalu `POST /orders`. `Idempotency-Key` dipakai ulang saat percobaan yang sama belum pasti hasilnya (jaringan putus, klik ganda) dan dibuat baru setelah hasil pasti. Respons `429` menonaktifkan tombol sesuai `Retry-After`. Event non-`ON_SALE` tidak dapat dipesan dari UI. |
 | Pesanan saya | `GET /orders` dengan paginasi, ringkasan, dan filter status. Status `Diproses` berubah otomatis (polling 2,5 detik). Klik baris untuk detail (`GET /orders/{id}`: tahapan, harga, waktu, alasan penolakan, salin ID). Pesanan `Belum bayar` menampilkan hitung mundur `expiresAt`, tombol **Bayar sekarang** (pilih metode simulasi, `POST /orders/{id}/pay`) dan **Batalkan pesanan** (`POST /orders/{id}/cancel`). Status `Lunas`, `Ditolak`, `Kedaluwarsa`, dan `Dibatalkan` tampil sebagai tahap akhir. Pesanan `Lunas` punya tombol **Lihat e-tiket** (`GET /orders/{id}/ticket`): kartu e-tiket dengan detail event, kode tiket, dan kode QR yang digambar di browser oleh `public/qr.js` (tanpa pustaka atau layanan luar), serta tombol salin kode. | Lencana di menu menunjukkan jumlah pesanan yang diproses atau menunggu pembayaran. |
-| Admin (role `admin`) | **Buat event**: form dengan validasi yang sama seperti server, 1-10 jenis tiket dinamis, dan pratinjau kartu langsung (`POST /events`). **Status layanan**: replika upstream dan kesehatannya, muncul otomatis tiap 10 detik (`GET /admin/upstreams`). Menu ini tidak tampil untuk akun biasa. |
+| Admin (role `admin`) | **Buat event**: form dengan validasi yang sama seperti server, 1-10 jenis tiket dinamis, dan pratinjau kartu langsung (`POST /events`). **Kelola event**: daftar event dengan pilihan status penjualan (`PATCH /events/{id}`); perubahan ke `Selesai` atau `Dibatalkan` meminta klik konfirmasi karena bersifat final. **Status layanan**: replika upstream dan kesehatannya, muncul otomatis tiap 10 detik (`GET /admin/upstreams`). Menu ini tidak tampil untuk akun biasa. |
 | Tampilan | Tema terang/gelap (mengikuti sistem, dapat diganti manual), responsif sampai layar ponsel, fokus keyboard terlihat, `prefers-reduced-motion` dihormati. |
 | Replika | Footer menampilkan header `X-Instance-Id` dari respons terakhir (untuk melihat load balancing). |
 

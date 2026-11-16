@@ -14,6 +14,17 @@ export const listSchema = z.object({
   offset: z.coerce.number().int().min(0).max(100000).default(0),
 });
 
+// Perubahan status event oleh admin. Penjualan boleh dijeda/dibuka lagi (UPCOMING <-> ON_SALE);
+// ENDED dan CANCELLED bersifat final supaya event yang sudah selesai/batal tidak dijual kembali tanpa sengaja.
+export const STATUS_TRANSITIONS = {
+  UPCOMING: ['ON_SALE', 'ENDED', 'CANCELLED'],
+  ON_SALE: ['UPCOMING', 'ENDED', 'CANCELLED'],
+  ENDED: [],
+  CANCELLED: [],
+};
+export const canTransition = (from, to) => from === to || (STATUS_TRANSITIONS[from] ?? []).includes(to);
+export const eventStatusInput = z.strictObject({ status: z.enum(STATUSES) });
+
 export const eventInput = z.object({
   name: z.string().trim().min(1).max(200),
   artist: z.string().trim().min(1).max(200),

@@ -7,7 +7,7 @@ import { buildSchema, parse, validate as gqlValidate, execute, specifiedRules, G
 import { setService, createApp, finishApp, listen, env, envInt, log, wrap, validate, HttpError } from './lib/common.js';
 import { createPool, waitForDb, migrate, withTx } from './lib/db.js';
 import { createVerifier, authenticate, requireScopes, requireRole } from './lib/security.js';
-import { listSchema, eventInput, reservationSchema } from './lib/schemas.js';
+import { listSchema, eventInput, eventStatusInput, canTransition, reservationSchema } from './lib/schemas.js';
 import { reserve, release } from './lib/inventory.js';
 import { createLimitsRule, gqlError } from './lib/graphql-limits.js';
 setService('event-service');
@@ -141,6 +141,19 @@ async function createEvent(input) {
   });
 }
 
+/** Ubah status event. Baris dikunci (FOR UPDATE) agar dua admin yang mengubah bersamaan tidak saling menimpa. Idempoten untuk status yang sama. */
+async function updateEventStatus(id, status) {
+  return withTx(pool, async (c) => {
+    const cur = (await c.query('SELECT status FROM events.events WHERE id=$1 FOR UPDATE', [id])).rows[0];
+    if (!cur) throw new HttpError(404, 'EVENT_NOT_FOUND', 'Event tidak ditemukan');
+    if (!canTransition(cur.status, status)) {
+      throw new HttpError(409, 'EVENT_STATUS_FINAL', `Event berstatus ${cur.status} bersifat final dan tidak dapat diubah menjadi ${status}`);
+    }
+    if (cur.status !== status) await c.query('UPDATE events.events SET status=$2 WHERE id=$1', [id, status]);
+    return getEvent(id, c);
+  });
+}
+
 // ---- GraphQL ----
 const schema = buildSchema(fs.readFileSync(new URL('../docs/schema.graphql', import.meta.url), 'utf8'));
 
@@ -206,6 +219,14 @@ app.get('/events/:id', auth, requireScopes('events:read'), wrap(async (req, res)
 app.post('/events', auth, requireRole('admin'), requireScopes('events:write'), express.json({ limit: '50kb' }), wrap(async (req, res) => {
   const e = await createEvent(validate(eventInput, req.body ?? {}));
   res.status(201).location(`/events/${e.id}`).json(e);
+}));
+
+app.patch('/events/:id', auth, requireRole('admin'), requireScopes('events:write'), express.json({ limit: '1kb' }), wrap(async (req, res) => {
+  const id = validate(z.uuid(), req.params.id);
+  const { status } = validate(eventStatusInput, req.body ?? {});
+  const e = await updateEventStatus(id, status);
+  log('info', 'status event diubah', { eventId: id, status, by: req.user.id });
+  res.status(200).json(e);
 }));
 
 app.post('/graphql', auth, requireScopes('events:read'), express.json({ limit: '50kb' }), wrap(async (req, res) => {

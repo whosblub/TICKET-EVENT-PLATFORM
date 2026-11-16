@@ -20,12 +20,12 @@ Sistem berjalan di Railway. **Satu-satunya pintu masuk publik adalah gateway:**
 | Item | Isi |
 |---|---|
 | Tag freeze | `v1.0-freeze` (nama tag dan **hash commit** tercantum di GitHub Release, bukan di file ini karena hash baru ada setelah tag dibuat) |
-| Branch freeze | `code-freeze` (lingkungan uji Railway dibangun dari branch ini; `master` bebas berkembang tanpa memengaruhi sistem yang diuji) |
+| Branch freeze | `freeze` (lingkungan uji Railway dibangun dari branch ini; `master` bebas berkembang tanpa memengaruhi sistem yang diuji) |
 | URL deployment | `https://tp-gateway-production-9a0d.up.railway.app` |
 | Spesifikasi | `docs/openapi.yaml` (REST), `docs/schema.graphql` (GraphQL, dengan contoh query/mutation) |
-| Dokumentasi interaktif (Swagger UI) | [ISI: URL Vercel]; sumber di folder `swagger-ui/`. Alternatif: impor `docs/openapi.yaml` ke Postman |
+| Dokumentasi interaktif (Swagger UI) | https://ticket-event-platform-swagger-ui.vercel.app/; sumber di folder `swagger-ui/`. Alternatif: impor `docs/openapi.yaml` ke Postman |
 | Environment variable | [Daftar environment variable](#daftar-environment-variable) dan `.env.example` (hanya placeholder) |
-| Penanggung jawab teknis | [ISI: nama dan kontak anggota Kelompok B] |
+| Penanggung jawab teknis | NAMA_ANDA, Kelompok B (email / WhatsApp) |
 | Kredensial uji | Dikirim terpisah ke Kelompok C: 1 akun admin khusus penguji dan akun user uji. Bukan akun yang dipakai pembangun. |
 | Formulir serah-terima | `docs/formulir-serah-terima.md` |
 | Templat issue bug | `.github/ISSUE_TEMPLATE/bug.md` |
@@ -70,11 +70,11 @@ DATABASE_URL='postgres://...' node scripts/create-admin.mjs penguji-admin@exampl
 
 ### Perubahan setelah freeze
 
-Setiap commit di branch `code-freeze` setelah tag harus merujuk satu issue (mis. `Fix #7: validasi stok negatif`). Pemeriksaan:
+Setiap commit di branch `freeze` setelah tag harus merujuk satu issue (mis. `Fix #7: validasi stok negatif`). Pemeriksaan:
 
 ```bash
 git for-each-ref refs/tags/v1.0-freeze --format='%(taggerdate:iso)'   # waktu tag
-git log v1.0-freeze..origin/code-freeze --oneline                      # tiap pesan harus menyebut issue
+git log v1.0-freeze..origin/freeze --oneline                      # tiap pesan harus menyebut issue
 git log v1.0-freeze..origin/master --oneline                           # informasi, bukan pelanggaran
 ```
 

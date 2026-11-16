@@ -7,10 +7,19 @@
 //   RESERVED --(dibatalkan pembeli)--> CANCELLED  (stok dikembalikan)
 // Order Service/Worker adalah SATU-SATUNYA pemilik keputusan "kapan stok dilepas". Event Service hanya
 // menjalankan perintah release, supaya tidak ada dua pihak yang saling berebut (mis. stok dilepas padahal sudah dibayar).
+import { randomInt } from 'node:crypto';
 import { HttpError, envInt } from './common.js';
 import { migrate } from './db.js';
 
 export const ORDER_STATUSES = ['PENDING', 'RESERVED', 'CONFIRMED', 'REJECTED', 'EXPIRED', 'CANCELLED'];
+
+// Alfabet kode e-tiket tanpa karakter yang mudah tertukar (0/O, 1/I/L), jadi aman dibaca manual di pintu masuk.
+const TICKET_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+/** Kode e-tiket acak (CSPRNG), format TKT-XXXX-XXXX-XXXX (31^12 kemungkinan). Tidak dapat ditebak dari id pesanan. */
+export function newTicketCode() {
+  const part = () => Array.from({ length: 4 }, () => TICKET_ALPHABET[randomInt(TICKET_ALPHABET.length)]).join('');
+  return `TKT-${part()}-${part()}-${part()}`;
+}
 const statusList = ORDER_STATUSES.map((s) => `'${s}'`).join(',');
 
 export async function migrateOrders(pool) {
@@ -45,6 +54,9 @@ export async function migrateOrders(pool) {
     END $$`);
     await c.query(`ALTER TABLE orders.orders ADD COLUMN IF NOT EXISTS expires_at timestamptz`);
     await c.query(`ALTER TABLE orders.orders ADD COLUMN IF NOT EXISTS paid_at timestamptz`);
+    // Kode e-tiket: dibuat saat pesanan dibayar (CONFIRMED). Unik; NULL untuk pesanan yang belum/tidak pernah dibayar.
+    await c.query(`ALTER TABLE orders.orders ADD COLUMN IF NOT EXISTS ticket_code text`);
+    await c.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_ticket_code ON orders.orders(ticket_code) WHERE ticket_code IS NOT NULL`);
     // true = stok order ini masih harus dikembalikan ke Event Service (dicoba ulang oleh sweeper sampai berhasil).
     await c.query(`ALTER TABLE orders.orders ADD COLUMN IF NOT EXISTS release_pending boolean NOT NULL DEFAULT false`);
     await c.query(`CREATE INDEX IF NOT EXISTS idx_orders_user ON orders.orders(user_id, created_at DESC)`);

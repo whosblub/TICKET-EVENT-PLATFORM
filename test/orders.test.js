@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOrderProcessor, createStockReleaser } from '../src/lib/orders.js';
+import { createOrderProcessor, createStockReleaser, newTicketCode } from '../src/lib/orders.js';
 import { HttpError } from '../src/lib/common.js';
 
 const ORDER = { id: '11111111-1111-4111-8111-111111111111', ticket_type_id: '22222222-2222-4222-8222-222222222222', quantity: 3 };
@@ -72,4 +72,15 @@ test('releaseStock: Event Service bermasalah (5xx) -> lempar error agar dicoba l
   const eventPool = { request: async () => ({ status: 503, body: {} }) };
   const releaseStock = createStockReleaser({ eventPool, getServiceToken: async () => 'tok' });
   await assert.rejects(releaseStock(ORDER.id), (e) => e instanceof HttpError && e.code === 'INVENTORY_UNAVAILABLE');
+});
+
+test('kode e-tiket: format TKT-XXXX-XXXX-XXXX, tanpa karakter ambigu, dan tidak berulang', () => {
+  const codes = new Set();
+  for (let i = 0; i < 2000; i++) {
+    const c = newTicketCode();
+    assert.match(c, /^TKT-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    assert.doesNotMatch(c.slice(4), /[01OIL]/); // karakter yang mudah tertukar tidak pernah muncul
+    codes.add(c);
+  }
+  assert.equal(codes.size, 2000);
 });

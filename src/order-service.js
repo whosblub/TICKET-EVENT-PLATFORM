@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { setService, createApp, finishApp, listen, env, envInt, log, wrap, validate, HttpError } from './lib/common.js';
 import { createPool, waitForDb } from './lib/db.js';
 import { createVerifier, authenticate, requireScopes, requireRole } from './lib/security.js';
-import { migrateOrders } from './lib/orders.js';
+import { migrateOrders, newTicketCode } from './lib/orders.js';
 import { createOrderQueue, enqueueOrder } from './lib/queue.js';
 import { createOrderSchema } from './lib/schemas.js';
 setService('order-service');
@@ -114,15 +114,35 @@ async function findOwnedOrder(id, userId) {
 app.post('/orders/:id/pay', auth, userOnly, requireScopes('orders:write'), wrap(async (req, res) => {
   const id = validate(z.uuid(), req.params.id);
   const upd = await pool.query(
-    `UPDATE orders.orders SET status='CONFIRMED', paid_at=now(), updated_at=now()
+    `UPDATE orders.orders SET status='CONFIRMED', paid_at=now(), updated_at=now(), ticket_code=COALESCE(ticket_code, $3)
      WHERE id=$1 AND user_id=$2 AND status='RESERVED' AND expires_at > now() RETURNING *`,
-    [id, req.user.id],
+    [id, req.user.id, newTicketCode()],
   );
   if (upd.rows[0]) return res.status(200).json(mapOrder(upd.rows[0]));
   const o = await findOwnedOrder(id, req.user.id);
   if (o.status === 'CONFIRMED') return res.status(200).json(mapOrder(o)); // idempoten: sudah dibayar
   if (o.status === 'RESERVED' || o.status === 'EXPIRED') throw new HttpError(409, 'ORDER_EXPIRED', 'Batas waktu pembayaran sudah lewat');
   throw new HttpError(409, 'ORDER_NOT_PAYABLE', `Pesanan berstatus ${o.status} dan tidak dapat dibayar`);
+}));
+
+/**
+ * E-tiket: kode tiket (untuk ditampilkan sebagai teks dan QR) dari pesanan CONFIRMED milik pembeli.
+ * Kode berlaku sebagai kredensial masuk, jadi hanya pemilik yang dapat membacanya (admin tidak ikut, pesanan orang lain 404).
+ * Kode dibuat saat pembayaran; pesanan CONFIRMED lama yang belum punya kode diberi kode di sini (satu UPDATE bersyarat).
+ */
+app.get('/orders/:id/ticket', auth, userOnly, requireScopes('orders:read'), wrap(async (req, res) => {
+  const id = validate(z.uuid(), req.params.id);
+  let o = await findOwnedOrder(id, req.user.id);
+  if (o.status !== 'CONFIRMED') throw new HttpError(409, 'ORDER_NOT_PAID', `E-tiket hanya tersedia untuk pesanan yang sudah dibayar (status saat ini ${o.status})`);
+  if (!o.ticket_code) {
+    await pool.query(`UPDATE orders.orders SET ticket_code=$2 WHERE id=$1 AND status='CONFIRMED' AND ticket_code IS NULL`, [id, newTicketCode()]);
+    o = await findOwnedOrder(id, req.user.id);
+  }
+  res.set('Cache-Control', 'no-store').json({
+    orderId: o.id, ticketCode: o.ticket_code, status: o.status, quantity: o.quantity,
+    eventId: o.event_id, ticketTypeId: o.ticket_type_id,
+    issuedAt: (o.paid_at ?? o.updated_at).toISOString(),
+  });
 }));
 
 /**

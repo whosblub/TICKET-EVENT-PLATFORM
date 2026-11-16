@@ -63,6 +63,7 @@ DATABASE_URL='postgres://...' node scripts/create-admin.mjs penguji-admin@exampl
 
 ### Keterbatasan yang diketahui
 
+- E-tiket berupa kode dan QR saja: belum ada pemindai atau endpoint validasi di pintu masuk, jadi kode belum dapat ditandai "sudah dipakai". Satu pesanan memakai satu kode untuk semua tiketnya.
 - Pembayaran masih **simulasi** (`POST /orders/{id}/pay` tanpa penyedia pembayaran; tidak ada uang sungguhan). Refund belum tersedia, sehingga pesanan `CONFIRMED` tidak dapat dibatalkan. Stok dari pesanan yang dibatalkan atau kedaluwarsa dikembalikan Worker pada siklus sweeper berikutnya (default sampai 30 detik).
 - Rate limiter bersifat fail-open bila Redis mati (ketersediaan didahulukan).
 - Antarmuka web punya menu **Admin** (khusus role `admin`) untuk membuat event dan melihat status replika; fitur lain tetap bisa lewat API (`POST /events`, mutation `createEvent`, `GET /admin/upstreams`).
@@ -202,7 +203,7 @@ node scripts/smoke.mjs                       # melawan http://localhost:8080
 BASE_URL=https://tp-gateway-production-9a0d.up.railway.app node scripts/smoke.mjs
 ```
 
-Smoke test memeriksa autentikasi, otorisasi, GraphQL, load balancing, 30 pemesanan bersamaan terhadap stok 10 (diterima `202`, lalu menunggu Worker: tepat 10 `RESERVED`, 20 `REJECTED`), idempotensi, alur pembayaran (bayar -> `CONFIRMED`, bayar ulang idempoten, batal -> `CANCELLED` dan stok kembali, pesanan orang lain -> `404`, status tidak valid -> `409`), dan rate limit. Kedaluwarsa otomatis (`EXPIRED`) tidak diuji karena butuh `RESERVATION_TTL_SECONDS` pendek; cek manual dengan menurunkan nilainya lalu menunggu sweeper.
+Smoke test memeriksa autentikasi, otorisasi, GraphQL, load balancing, 30 pemesanan bersamaan terhadap stok 10 (diterima `202`, lalu menunggu Worker: tepat 10 `RESERVED`, 20 `REJECTED`), idempotensi, alur pembayaran (bayar -> `CONFIRMED` dan terbit e-tiket, bayar ulang idempoten, batal -> `CANCELLED` dan stok kembali, pesanan orang lain -> `404`, status tidak valid -> `409`), e-tiket (kode stabil, hanya pemilik, `409` bila belum dibayar), dan rate limit. Kedaluwarsa otomatis (`EXPIRED`) tidak diuji karena butuh `RESERVATION_TTL_SECONDS` pendek; cek manual dengan menurunkan nilainya lalu menunggu sweeper.
 
 ### Tanpa Docker (pengembangan)
 
@@ -281,6 +282,7 @@ Spesifikasi lengkap: [`docs/openapi.yaml`](docs/openapi.yaml). Skema GraphQL bes
 | GET | `/orders` | `orders:read` | Daftar pesanan sendiri |
 | GET | `/orders/{id}` | `orders:read` | Detail pesanan: status, `expiresAt`, `paidAt` (pemilik atau admin) |
 | POST | `/orders/{id}/pay` | `orders:write` | Bayar (simulasi): `RESERVED` menjadi `CONFIRMED` sebelum `expiresAt`. Idempoten; `409` bila kedaluwarsa atau status tidak sesuai |
+| GET | `/orders/{id}/ticket` | `orders:read` | E-tiket: `ticketCode` (format `TKT-XXXX-XXXX-XXXX`, isi QR) untuk pesanan `CONFIRMED`. Hanya pemilik (lainnya `404`); `409` bila belum dibayar |
 | POST | `/orders/{id}/cancel` | `orders:write` | Batalkan pesanan `RESERVED` menjadi `CANCELLED`, stok dikembalikan. Idempoten; `409` bila sudah dibayar |
 
 **Status pesanan:** `PENDING` (antri) -> `RESERVED` (stok ditahan sampai `expiresAt`, default 15 menit via `RESERVATION_TTL_SECONDS`) -> `CONFIRMED` (dibayar). Jalur lain: `PENDING` -> `REJECTED` (stok habis, event tidak dijual, dll.), `RESERVED` -> `EXPIRED` (tidak dibayar tepat waktu), `RESERVED` -> `CANCELLED` (dibatalkan pembeli). Pay dan cancel hanya untuk pemilik pesanan; pesanan orang lain dijawab `404`.
@@ -397,7 +399,7 @@ Gateway menyajikan antarmuka web (folder `public/`, tanpa build step, tanpa font
 | Daftar / Masuk | `POST /auth/register` dan OAuth2 password grant (client `ticketing-web`), dengan validasi di sisi klien. Token disimpan di `sessionStorage`; header menampilkan hitung mundur sesi (15 menit) dan memberi peringatan 1 menit sebelum habis. |
 | Katalog event | Kartu berbentuk tiket. Filter nama/artis (otomatis saat mengetik), kota, kategori, status, dan "hanya yang masih ada tiket"; paginasi 12 event per halaman (`GET /events`). |
 | Detail event dan pemesanan | Klik kartu untuk membuka `GET /events/{id}` dengan stok terbaru: pilih jenis tiket, atur jumlah (1-4, dibatasi stok), lihat total, lalu `POST /orders`. `Idempotency-Key` dipakai ulang saat percobaan yang sama belum pasti hasilnya (jaringan putus, klik ganda) dan dibuat baru setelah hasil pasti. Respons `429` menonaktifkan tombol sesuai `Retry-After`. Event non-`ON_SALE` tidak dapat dipesan dari UI. |
-| Pesanan saya | `GET /orders` dengan paginasi, ringkasan, dan filter status. Status `Diproses` berubah otomatis (polling 2,5 detik). Klik baris untuk detail (`GET /orders/{id}`: tahapan, harga, waktu, alasan penolakan, salin ID). Pesanan `Belum bayar` menampilkan hitung mundur `expiresAt`, tombol **Bayar sekarang** (pilih metode simulasi, `POST /orders/{id}/pay`) dan **Batalkan pesanan** (`POST /orders/{id}/cancel`). Status `Lunas`, `Ditolak`, `Kedaluwarsa`, dan `Dibatalkan` tampil sebagai tahap akhir. Lencana di menu menunjukkan jumlah pesanan yang diproses atau menunggu pembayaran. |
+| Pesanan saya | `GET /orders` dengan paginasi, ringkasan, dan filter status. Status `Diproses` berubah otomatis (polling 2,5 detik). Klik baris untuk detail (`GET /orders/{id}`: tahapan, harga, waktu, alasan penolakan, salin ID). Pesanan `Belum bayar` menampilkan hitung mundur `expiresAt`, tombol **Bayar sekarang** (pilih metode simulasi, `POST /orders/{id}/pay`) dan **Batalkan pesanan** (`POST /orders/{id}/cancel`). Status `Lunas`, `Ditolak`, `Kedaluwarsa`, dan `Dibatalkan` tampil sebagai tahap akhir. Pesanan `Lunas` punya tombol **Lihat e-tiket** (`GET /orders/{id}/ticket`): kartu e-tiket dengan detail event, kode tiket, dan kode QR yang digambar di browser oleh `public/qr.js` (tanpa pustaka atau layanan luar), serta tombol salin kode. | Lencana di menu menunjukkan jumlah pesanan yang diproses atau menunggu pembayaran. |
 | Admin (role `admin`) | **Buat event**: form dengan validasi yang sama seperti server, 1-10 jenis tiket dinamis, dan pratinjau kartu langsung (`POST /events`). **Status layanan**: replika upstream dan kesehatannya, muncul otomatis tiap 10 detik (`GET /admin/upstreams`). Menu ini tidak tampil untuk akun biasa. |
 | Tampilan | Tema terang/gelap (mengikuti sistem, dapat diganti manual), responsif sampai layar ponsel, fokus keyboard terlihat, `prefers-reduced-motion` dihormati. |
 | Replika | Footer menampilkan header `X-Instance-Id` dari respons terakhir (untuk melihat load balancing). |
@@ -438,7 +440,7 @@ Melihat log: `docker compose logs <nama-service>` (mis. `gateway`, `order-servic
 src/gateway.js  src/auth-service.js  src/event-service.js  src/order-service.js  src/worker.js
 src/lib/        common.js (app, error, log)  db.js  security.js (JWT, scope)  upstream.js (discovery, LB)
                 queue.js (message queue)  orders.js (skema order, pemroses order)
-public/         index.html  style.css  app.js  theme.js (antarmuka web, disajikan gateway)
+public/         index.html  style.css  app.js  qr.js  theme.js (antarmuka web, disajikan gateway)
 test/           orders.test.js  inventory.test.js  gateway-ratelimit.test.js  helpers.js
 docs/           openapi.yaml  schema.graphql  arsitektur.png  arsitektur.svg  keamanan-dan-protokol.md
 scripts/        smoke.mjs  gen-jwk.mjs  reset-test-data.mjs  create-admin.mjs

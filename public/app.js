@@ -764,7 +764,7 @@
         const { data } = await api('POST', `/orders/${order.id}/pay`);
         sync(data);
         mode = 'detail';
-        toast('Pembayaran berhasil. Tiketmu sudah aktif.', 'ok');
+        toast('Pembayaran berhasil. E-tiketmu sudah aktif.', 'ok');
         refreshBadge();
         paint();
       } catch (e) {
@@ -807,12 +807,13 @@
       let note = null;
       if (st === 'PENDING') note = h('div', { class: 'alert warn' }, 'Pesananmu sedang diproses. Halaman ini diperbarui otomatis.');
       else if (st === 'RESERVED') note = h('div', { class: 'alert warn' }, 'Tiketmu sedang ditahan. Selesaikan pembayaran dalam ', clockEl(), ' agar tidak dilepas.');
-      else if (st === 'CONFIRMED') note = h('div', { class: 'alert ok' }, `Pembayaran diterima${o.paidAt ? ` pada ${dateShort.format(new Date(o.paidAt))}` : ''}. Tiketmu sudah aktif.`);
+      else if (st === 'CONFIRMED') note = h('div', { class: 'alert ok' }, `Pembayaran diterima${o.paidAt ? ` pada ${dateShort.format(new Date(o.paidAt))}` : ''}. Buka e-tiket untuk melihat kode dan QR masuk.`);
       else if (st === 'REJECTED') note = h('div', { class: 'alert err' }, REASONS[o.reason] || o.reason || 'Pesanan tidak dapat diproses.');
       else if (st === 'EXPIRED') note = h('div', { class: 'alert err' }, 'Batas waktu pembayaran sudah lewat. Tiket akan dikembalikan ke stok; silakan pesan lagi bila masih ingin.');
       else if (st === 'CANCELLED') note = h('div', { class: 'alert warn' }, 'Pesanan dibatalkan. Tiket akan dikembalikan ke stok.');
 
       const actions = [];
+      if (st === 'CONFIRMED') actions.push(h('button', { type: 'button', class: 'btn', onclick: () => openTicket(order) }, 'Lihat e-tiket'));
       if (st === 'RESERVED') {
         actions.push(h('button', { type: 'button', class: 'btn', onclick: () => { mode = 'pay'; askCancel = false; paint(); } }, 'Bayar sekarang'));
         if (askCancel) {
@@ -887,8 +888,91 @@
     else if (lapsed(order)) follow((o) => o.status === 'RESERVED');
   }
 
-  async function copyText(text) {
-    try { await navigator.clipboard.writeText(text); toast('ID pesanan disalin.', 'ok'); } catch { toast('Tidak dapat menyalin otomatis. Pilih dan salin ID secara manual.', 'err'); }
+  async function copyText(text, label = 'ID pesanan') {
+    try { await navigator.clipboard.writeText(text); toast(`${label} disalin.`, 'ok'); } catch { toast(`Tidak dapat menyalin otomatis. Pilih dan salin ${label.toLowerCase()} secara manual.`, 'err'); }
+  }
+
+  // ---------- e-tiket ----------
+  // Gambar QR sebagai SVG (hitam di atas putih agar selalu terbaca pemindai, juga pada tema gelap).
+  function qrSvg(text) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const q = QR.encode(text);
+    const quiet = 4;
+    const n = q.size + quiet * 2;
+    let d = '';
+    for (let r = 0; r < q.size; r++) {
+      for (let c = 0; c < q.size; c++) {
+        if (!q.modules[r][c]) continue;
+        let len = 1;
+        while (c + len < q.size && q.modules[r][c + len]) len++;
+        d += `M${c + quiet} ${r + quiet}h${len}v1h-${len}z`;
+        c += len - 1;
+      }
+    }
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${n} ${n}`);
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `Kode QR e-tiket ${text}`);
+    const bg = document.createElementNS(NS, 'rect');
+    for (const [k, v] of [['width', n], ['height', n], ['fill', '#ffffff']]) bg.setAttribute(k, v);
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', '#000000');
+    svg.append(bg, path);
+    return svg;
+  }
+
+  // Layar e-tiket untuk pesanan CONFIRMED: kode tiket dari GET /orders/{id}/ticket, ditampilkan sebagai teks dan QR.
+  async function openTicket(order) {
+    const info = names.tickets[order.ticketTypeId];
+    const head = () => sheetHead(hueOf(info?.event || 'E-tiket'), 'E-tiket', h('p', {}, info ? `${info.event} - ${info.ticket}` : `Tiket ${order.ticketTypeId.slice(0, 8)}`));
+    const back = h('button', { type: 'button', class: 'btn ghost', onclick: () => openOrder(order) }, 'Kembali ke pesanan');
+    const holder = h('div', {}, head(), h('div', { class: 'sheet-body' }, h('p', { class: 'muted', role: 'status' }, 'Memuat e-tiket...')));
+    openDialog(holder);
+
+    let ticket;
+    let ev = null;
+    try {
+      const [t, e] = await Promise.all([
+        api('GET', `/orders/${order.id}/ticket`),
+        order.eventId ? api('GET', `/events/${order.eventId}`).then((r) => r.data).catch(() => null) : null,
+      ]);
+      ticket = t.data;
+      ev = e;
+    } catch (e) {
+      if (!holder.isConnected) return;
+      holder.replaceChildren(head(), h('div', { class: 'sheet-body' },
+        h('div', { class: 'alert err' }, e.message),
+        h('div', { class: 'actions' },
+          e.status === 409 || e.status === 404 ? null : h('button', { type: 'button', class: 'btn', onclick: () => openTicket(order) }, 'Coba lagi'),
+          back)));
+      return;
+    }
+    if (!holder.isConnected) return; // dialog sudah ditutup/diganti saat memuat
+    if (ev) rememberEvent(ev);
+    const evName = ev?.name || info?.event;
+
+    let qr = null;
+    try { qr = qrSvg(ticket.ticketCode); } catch { /* kode teks tetap ditampilkan */ }
+    holder.replaceChildren(
+      sheetHead(hueOf(evName || 'E-tiket'), 'E-tiket', h('p', {}, info ? `${evName} - ${info.ticket}` : (evName || `Tiket ${order.ticketTypeId.slice(0, 8)}`))),
+      h('div', { class: 'sheet-body' },
+        h('div', { class: 'eticket' },
+          h('dl', { class: 'kv' },
+            evName ? [h('dt', {}, 'Event'), h('dd', {}, evName)] : null,
+            ev?.startsAt ? [h('dt', {}, 'Waktu'), h('dd', {}, dateShort.format(new Date(ev.startsAt)))] : null,
+            ev?.venue ? [h('dt', {}, 'Lokasi'), h('dd', {}, [ev.venue, ev.city].filter(Boolean).join(', '))] : null,
+            info ? [h('dt', {}, 'Jenis tiket'), h('dd', {}, info.ticket)] : null,
+            h('dt', {}, 'Jumlah'), h('dd', {}, `${ticket.quantity} tiket`),
+            h('dt', {}, 'Diterbitkan'), h('dd', {}, dateShort.format(new Date(ticket.issuedAt)))),
+          h('div', { class: 'eticket-cut', 'aria-hidden': 'true' }),
+          qr ? h('div', { class: 'qr-box' }, qr) : null,
+          h('div', { class: 'ticket-code', 'aria-label': 'Kode tiket' }, ticket.ticketCode)),
+        h('p', { class: 'muted small' }, `Tunjukkan QR atau kode ini saat masuk. Satu kode berlaku untuk ${ticket.quantity} tiket pada pesanan ini. Jangan bagikan ke orang lain.`),
+        h('div', { class: 'actions' },
+          h('button', { type: 'button', class: 'btn', onclick: () => copyText(ticket.ticketCode, 'Kode e-tiket') }, 'Salin kode'),
+          back)));
   }
 
   // ---------- admin ----------

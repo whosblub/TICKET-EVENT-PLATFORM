@@ -227,6 +227,23 @@ paths:
         '404': { description: ORDER_NOT_FOUND (tidak ada atau bukan milik pengguna) }
         '409': { description: 'ORDER_EXPIRED (batas waktu bayar sudah lewat) atau ORDER_NOT_PAYABLE (status PENDING, REJECTED, atau CANCELLED)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /orders/{id}/ticket:
+    get:
+      tags: [Orders]
+      summary: E-tiket (kode tiket untuk QR) dari pesanan yang sudah dibayar (scope orders:read)
+      description: |
+        Mengembalikan kode e-tiket pesanan `CONFIRMED`. Kode dibuat acak saat pembayaran dan tetap sama pada pemanggilan
+        berikutnya. Satu kode berlaku untuk seluruh `quantity` tiket dalam pesanan. Kode berfungsi sebagai kredensial masuk,
+        jadi **hanya pemilik** yang dapat membacanya: pesanan orang lain dan akses admin dijawab `404`. Respons tidak boleh di-cache.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: E-tiket, content: { application/json: { schema: { $ref: '#/components/schemas/Ticket' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: ORDER_NOT_FOUND (tidak ada atau bukan milik pengguna) }
+        '409': { description: 'ORDER_NOT_PAID (status bukan CONFIRMED)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /orders/{id}/cancel:
     post:
       tags: [Orders]
@@ -326,6 +343,16 @@ components:
       properties:
         ticketTypeId: { type: string, format: uuid }
         quantity: { type: integer, minimum: 1, maximum: 4 }
+    Ticket:
+      type: object
+      properties:
+        orderId: { type: string, format: uuid }
+        ticketCode: { type: string, example: TKT-7K2M-QW9P-X4HD, description: 'Format TKT-XXXX-XXXX-XXXX (tanpa 0/O/1/I/L). Dipakai sebagai isi QR.' }
+        status: { type: string, enum: [CONFIRMED] }
+        quantity: { type: integer, description: Jumlah tiket yang berlaku untuk kode ini }
+        eventId: { type: string, format: uuid, nullable: true }
+        ticketTypeId: { type: string, format: uuid }
+        issuedAt: { type: string, format: date-time, description: Waktu pembayaran (penerbitan e-tiket) }
     Order:
       type: object
       properties:

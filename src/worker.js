@@ -5,7 +5,7 @@ import { setService, createApp, finishApp, env, envInt, envList, log, assertSecr
 import { createPool, waitForDb } from './lib/db.js';
 import { createServiceTokenProvider } from './lib/security.js';
 import { UpstreamPool } from './lib/upstream.js';
-import { migrateOrders, createOrderProcessor } from './lib/orders.js';
+import { migrateOrders, createOrderProcessor, createStockReleaser } from './lib/orders.js';
 import { ORDER_QUEUE, redisConnection, defaultJobOptions } from './lib/queue.js';
 setService('worker');
 
@@ -29,6 +29,13 @@ const getServiceToken = createServiceTokenProvider({
   scope: 'inventory:write',
 });
 const processOrder = createOrderProcessor({ pool, eventPool, getServiceToken });
+const releaseStock = createStockReleaser({ eventPool, getServiceToken });
+
+/** Kembalikan stok sebuah order lalu hapus penanda release_pending. Bila gagal, penanda tetap menyala dan sweeper mencoba lagi. */
+async function releaseAndClear(orderId) {
+  await releaseStock(orderId);
+  await pool.query('UPDATE orders.orders SET release_pending=false, updated_at=now() WHERE id=$1', [orderId]);
+}
 
 // ---- Consumer ----
 async function handleJob(job) {
@@ -55,10 +62,16 @@ worker.on('failed', async (job, err) => {
   });
   if (exhausted) {
     // Job tetap tersimpan di set "failed" BullMQ (dead-letter queue) untuk diperiksa; pesanan tidak dibiarkan PENDING selamanya.
-    await pool.query(
-      `UPDATE orders.orders SET status='REJECTED', reason='PROCESSING_FAILED', updated_at=now() WHERE id=$1 AND status='PENDING'`,
-      [job.data.orderId],
-    ).catch((e) => log('error', 'gagal menandai order', { error: e.message }));
+    // release_pending=true: percobaan sebelumnya mungkin sempat menahan stok di Event Service, jadi stok dikembalikan (idempoten).
+    try {
+      const rej = await pool.query(
+        `UPDATE orders.orders SET status='REJECTED', reason='PROCESSING_FAILED', release_pending=true, updated_at=now() WHERE id=$1 AND status='PENDING' RETURNING id`,
+        [job.data.orderId],
+      );
+      if (rej.rowCount) await releaseAndClear(job.data.orderId).catch((e) => log('warn', 'stok belum bisa dikembalikan, akan dicoba sweeper', { orderId: job.data.orderId, error: e.message }));
+    } catch (e) {
+      log('error', 'gagal menandai order', { error: e.message });
+    }
   }
 });
 
@@ -82,7 +95,50 @@ async function sweep() {
     sweeping = false;
   }
 }
-const sweepTimer = setInterval(sweep, SWEEP_INTERVAL_MS);
+
+// ---- Sweeper kedaluwarsa: order RESERVED yang lewat expires_at -> EXPIRED, lalu stoknya dikembalikan ----
+// Status diubah LEBIH DULU (klaim atomik, SKIP LOCKED aman untuk banyak worker). Pembayaran memeriksa expires_at pada
+// UPDATE-nya sendiri, jadi order yang sudah diklaim tidak mungkin berubah jadi CONFIRMED sementara stoknya dilepas.
+async function expireReservations() {
+  const r = await pool.query(
+    `UPDATE orders.orders SET status='EXPIRED', release_pending=true, updated_at=now()
+     WHERE id IN (SELECT id FROM orders.orders WHERE status='RESERVED' AND expires_at <= now() ORDER BY expires_at LIMIT 200 FOR UPDATE SKIP LOCKED)
+     RETURNING id`,
+  );
+  if (r.rowCount) log('info', 'order kedaluwarsa', { count: r.rowCount });
+}
+
+// ---- Sweeper release: kembalikan stok order EXPIRED/CANCELLED/REJECTED(PROCESSING_FAILED) yang belum tuntas ----
+async function retryReleases() {
+  const rows = (await pool.query(`SELECT id FROM orders.orders WHERE release_pending ORDER BY updated_at LIMIT 200`)).rows;
+  let done = 0;
+  for (const r of rows) {
+    try {
+      await releaseAndClear(r.id);
+      done++;
+    } catch (e) {
+      log('warn', 'release stok gagal, dicoba lagi pada siklus berikutnya', { orderId: r.id, error: e.message });
+      break; // Event Service kemungkinan bermasalah: jangan membanjirinya
+    }
+  }
+  if (done) log('info', 'stok dikembalikan', { count: done });
+}
+
+let housekeeping = false;
+async function housekeep() {
+  if (housekeeping) return;
+  housekeeping = true;
+  try {
+    await expireReservations();
+    await retryReleases();
+  } catch (e) {
+    log('warn', 'housekeeping gagal', { error: e.message });
+  } finally {
+    housekeeping = false;
+  }
+}
+
+const sweepTimer = setInterval(() => { sweep(); housekeep(); }, SWEEP_INTERVAL_MS);
 sweepTimer.unref();
 
 // ---- /health opsional: aktif bila PORT diatur (mis. Render Web Service). Di Docker Compose tidak dipakai. ----

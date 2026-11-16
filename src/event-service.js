@@ -8,7 +8,7 @@ import { setService, createApp, finishApp, listen, env, envInt, log, wrap, valid
 import { createPool, waitForDb, migrate, withTx } from './lib/db.js';
 import { createVerifier, authenticate, requireScopes, requireRole } from './lib/security.js';
 import { listSchema, eventInput, reservationSchema } from './lib/schemas.js';
-import { reserve } from './lib/inventory.js';
+import { reserve, release } from './lib/inventory.js';
 import { createLimitsRule, gqlError } from './lib/graphql-limits.js';
 setService('event-service');
 
@@ -58,6 +58,15 @@ await migrate(pool, 7002, async (c) => {
     quantity int NOT NULL CHECK (quantity > 0),
     created_at timestamptz NOT NULL DEFAULT now()
   )`);
+  // Reservasi bisa dilepas (stok dikembalikan). Keputusan kapan melepas ada di Order Service; di sini hanya mencatat.
+  await c.query(`ALTER TABLE events.reservations ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ACTIVE'`);
+  await c.query(`DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'reservations_status_check' AND conrelid = 'events.reservations'::regclass) THEN
+      ALTER TABLE events.reservations ADD CONSTRAINT reservations_status_check CHECK (status IN ('ACTIVE','RELEASED'));
+    END IF;
+  END $$`);
+  await c.query('ALTER TABLE events.reservations ADD COLUMN IF NOT EXISTS released_at timestamptz');
   await c.query('CREATE INDEX IF NOT EXISTS idx_events_city ON events.events(lower(city))');
   await c.query('CREATE INDEX IF NOT EXISTS idx_events_starts ON events.events(starts_at)');
   await c.query('CREATE INDEX IF NOT EXISTS idx_tt_event ON events.ticket_types(event_id)');
@@ -220,6 +229,14 @@ app.post('/graphql', auth, requireScopes('events:read'), express.json({ limit: '
 app.post('/internal/reservations', auth, requireRole('service'), requireScopes('inventory:write'), express.json({ limit: '5kb' }), wrap(async (req, res) => {
   const { created, body } = await reserve(pool, validate(reservationSchema, req.body ?? {}));
   res.status(created ? 201 : 200).json(body);
+}));
+
+// Mengembalikan stok sebuah reservasi. Idempoten: 200 baik reservasinya baru dilepas maupun sudah/tidak pernah ada.
+app.post('/internal/reservations/:orderId/release', auth, requireRole('service'), requireScopes('inventory:write'), wrap(async (req, res) => {
+  const orderId = validate(z.uuid(), req.params.orderId);
+  const result = await release(pool, orderId);
+  if (result.released) log('info', 'reservasi dilepas', { orderId });
+  res.status(200).json(result);
 }));
 
 finishApp(app);

@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { reserve } from '../src/lib/inventory.js';
+import { reserve, release } from '../src/lib/inventory.js';
 
 const TT = '22222222-2222-4222-8222-222222222222';
 const EV = 'a0000000-0000-4000-8000-000000000001';
 
 // Database palsu yang meniru semantik PostgreSQL (transaksi, ROLLBACK, ON CONFLICT, UPDATE bersyarat)
 function fakeDb(stock) {
-  const state = { tickets: { [TT]: { event_id: EV, price: 150000, available: stock, status: 'ON_SALE' } }, reservations: new Map(), log: [] };
+  const state = { tickets: { [TT]: { event_id: EV, price: 150000, available: stock, total: stock, status: 'ON_SALE', starts_at: new Date(Date.now() + 86_400_000) } }, reservations: new Map(), log: [] };
   return {
     state,
     async connect() {
@@ -20,12 +20,24 @@ function fakeDb(stock) {
           if (sql === 'COMMIT') { undo = []; state.log.push('COMMIT'); return {}; }
           if (sql === 'ROLLBACK') { for (const f of undo.reverse()) f(); undo = []; state.log.push('ROLLBACK'); return {}; }
           await Promise.resolve();
-          if (sql.startsWith('SELECT event_id, price')) { const t = state.tickets[p[0]]; return { rows: t ? [{ event_id: t.event_id, price: t.price, status: t.status }] : [] }; }
+          if (sql.startsWith('SELECT event_id, price')) { const t = state.tickets[p[0]]; return { rows: t ? [{ event_id: t.event_id, price: t.price, status: t.status, starts_at: t.starts_at }] : [] }; }
+          if (sql.startsWith('SELECT status FROM events.reservations')) { const r = state.reservations.get(p[0]); return { rows: r ? [{ status: r.status }] : [] }; }
+          if (sql.startsWith('UPDATE events.reservations')) {
+            const r = state.reservations.get(p[0]);
+            if (!r || r.status !== 'ACTIVE') return { rowCount: 0, rows: [] };
+            r.status = 'RELEASED'; undo.push(() => { r.status = 'ACTIVE'; });
+            return { rowCount: 1, rows: [{ ticket_type_id: r.ticketTypeId, quantity: r.quantity }] };
+          }
           if (sql.startsWith('INSERT INTO events.reservations')) {
             if (state.reservations.has(p[0])) return { rowCount: 0, rows: [] };
-            state.reservations.set(p[0], { ticketTypeId: p[1], quantity: p[2] });
+            state.reservations.set(p[0], { ticketTypeId: p[1], quantity: p[2], status: 'ACTIVE' });
             undo.push(() => state.reservations.delete(p[0]));
             return { rowCount: 1, rows: [{ order_id: p[0] }] };
+          }
+          if (sql.startsWith('UPDATE events.ticket_types') && sql.includes('LEAST')) {
+            const t = state.tickets[p[0]]; const before = t.available;
+            t.available = Math.min(t.total, t.available + p[1]); undo.push(() => { t.available = before; });
+            return { rowCount: 1 };
           }
           if (sql.startsWith('UPDATE events.ticket_types')) {
             const t = state.tickets[p[0]];
@@ -90,4 +102,44 @@ test('event tidak ON_SALE -> 409 EVENT_NOT_ON_SALE dan stok tidak berubah', asyn
   db.state.tickets[TT].status = 'CANCELLED';
   await assert.rejects(reserve(db, order(1)), (e) => e.status === 409 && e.code === 'EVENT_NOT_ON_SALE');
   assert.equal(db.state.tickets[TT].available, 10);
+});
+
+test('event yang sudah dimulai -> 409 EVENT_ALREADY_STARTED dan stok tidak berubah', async () => {
+  const db = fakeDb(10);
+  db.state.tickets[TT].starts_at = new Date(Date.now() - 1000);
+  await assert.rejects(reserve(db, order(1)), (e) => e.status === 409 && e.code === 'EVENT_ALREADY_STARTED');
+  assert.equal(db.state.tickets[TT].available, 10);
+});
+
+test('release: stok dikembalikan tepat sekali, panggilan ulang tidak menambah stok lagi', async () => {
+  const db = fakeDb(10);
+  await reserve(db, order(1, 3));
+  assert.equal(db.state.tickets[TT].available, 7);
+  assert.deepEqual(await release(db, order(1).orderId), { orderId: order(1).orderId, released: true });
+  assert.equal(db.state.tickets[TT].available, 10);
+  assert.deepEqual(await release(db, order(1).orderId), { orderId: order(1).orderId, released: false });
+  assert.equal(db.state.tickets[TT].available, 10);
+});
+
+test('release untuk order tanpa reservasi -> released:false dan stok tidak berubah', async () => {
+  const db = fakeDb(10);
+  assert.equal((await release(db, order(99).orderId)).released, false);
+  assert.equal(db.state.tickets[TT].available, 10);
+});
+
+test('reservasi yang sudah dilepas tidak bisa dihidupkan lagi oleh retry lama -> 409 RESERVATION_RELEASED', async () => {
+  const db = fakeDb(10);
+  await reserve(db, order(1, 2));
+  await release(db, order(1).orderId);
+  await assert.rejects(reserve(db, order(1, 2)), (e) => e.status === 409 && e.code === 'RESERVATION_RELEASED');
+  assert.equal(db.state.tickets[TT].available, 10);
+});
+
+test('stok yang dilepas bisa dibeli order lain', async () => {
+  const db = fakeDb(2);
+  await reserve(db, order(1, 2));
+  await assert.rejects(reserve(db, order(2, 1)), (e) => e.code === 'INSUFFICIENT_STOCK');
+  await release(db, order(1).orderId);
+  assert.equal((await reserve(db, order(2, 1))).created, true);
+  assert.equal(db.state.tickets[TT].available, 1);
 });

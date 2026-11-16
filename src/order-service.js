@@ -1,4 +1,6 @@
 // Order Service: menerima pesanan, menyimpannya sebagai PENDING, lalu memasukkannya ke message queue.
+// Worker menahan stok (RESERVED, berbatas waktu); pembeli harus membayar sebelum expires_at agar menjadi CONFIRMED,
+// atau membatalkan. Pesanan yang tidak dibayar kedaluwarsa (EXPIRED) dan stoknya dikembalikan oleh Worker.
 // Stok dimiliki Event Service dan diproses oleh Worker (src/worker.js) satu per satu, sehingga lonjakan
 // request saat penjualan dibuka tidak langsung menekan Event Service/database dan tiket tidak terjual ganda.
 import express from 'express';
@@ -25,7 +27,10 @@ const mapOrder = (r) => ({
   id: r.id, userId: r.user_id, eventId: r.event_id, ticketTypeId: r.ticket_type_id, quantity: r.quantity,
   unitPrice: r.unit_price === null ? null : Number(r.unit_price),
   totalPrice: r.total_price === null ? null : Number(r.total_price),
-  status: r.status, reason: r.reason, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
+  status: r.status, reason: r.reason,
+  expiresAt: r.expires_at ? r.expires_at.toISOString() : null,
+  paidAt: r.paid_at ? r.paid_at.toISOString() : null,
+  createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
 });
 
 const app = createApp('order-service');
@@ -92,6 +97,49 @@ app.get('/orders/:id', auth, userOnly, requireScopes('orders:read'), wrap(async 
   // Bukan pemilik (dan bukan admin) diperlakukan sama seperti tidak ada: mencegah akses ke pesanan orang lain (BOLA/IDOR).
   if (!r || (r.user_id !== req.user.id && req.user.role !== 'admin')) throw new HttpError(404, 'ORDER_NOT_FOUND', 'Pesanan tidak ditemukan');
   res.json(mapOrder(r));
+}));
+
+/** Pesanan milik user yang sedang login. Bukan pemilik diperlakukan sama seperti tidak ada (anti BOLA/IDOR); admin tidak ikut membayar/membatalkan. */
+async function findOwnedOrder(id, userId) {
+  const r = (await pool.query('SELECT * FROM orders.orders WHERE id=$1 AND user_id=$2', [id, userId])).rows[0];
+  if (!r) throw new HttpError(404, 'ORDER_NOT_FOUND', 'Pesanan tidak ditemukan');
+  return r;
+}
+
+/**
+ * Pembayaran (SIMULASI): menandai pesanan RESERVED menjadi CONFIRMED selama belum lewat expires_at.
+ * Satu UPDATE bersyarat sehingga aman terhadap balapan dengan sweeper kedaluwarsa dan klik ganda.
+ * Pada sistem sungguhan, endpoint ini diganti webhook penyedia pembayaran yang diverifikasi tanda tangannya.
+ */
+app.post('/orders/:id/pay', auth, userOnly, requireScopes('orders:write'), wrap(async (req, res) => {
+  const id = validate(z.uuid(), req.params.id);
+  const upd = await pool.query(
+    `UPDATE orders.orders SET status='CONFIRMED', paid_at=now(), updated_at=now()
+     WHERE id=$1 AND user_id=$2 AND status='RESERVED' AND expires_at > now() RETURNING *`,
+    [id, req.user.id],
+  );
+  if (upd.rows[0]) return res.status(200).json(mapOrder(upd.rows[0]));
+  const o = await findOwnedOrder(id, req.user.id);
+  if (o.status === 'CONFIRMED') return res.status(200).json(mapOrder(o)); // idempoten: sudah dibayar
+  if (o.status === 'RESERVED' || o.status === 'EXPIRED') throw new HttpError(409, 'ORDER_EXPIRED', 'Batas waktu pembayaran sudah lewat');
+  throw new HttpError(409, 'ORDER_NOT_PAYABLE', `Pesanan berstatus ${o.status} dan tidak dapat dibayar`);
+}));
+
+/**
+ * Pembatalan oleh pembeli: hanya untuk pesanan RESERVED (belum dibayar). Stok dikembalikan oleh Worker
+ * (release_pending) dalam satu siklus sweeper. Pesanan CONFIRMED tidak dapat dibatalkan karena refund belum tersedia.
+ */
+app.post('/orders/:id/cancel', auth, userOnly, requireScopes('orders:write'), wrap(async (req, res) => {
+  const id = validate(z.uuid(), req.params.id);
+  const upd = await pool.query(
+    `UPDATE orders.orders SET status='CANCELLED', release_pending=true, updated_at=now()
+     WHERE id=$1 AND user_id=$2 AND status='RESERVED' RETURNING *`,
+    [id, req.user.id],
+  );
+  if (upd.rows[0]) return res.status(200).json(mapOrder(upd.rows[0]));
+  const o = await findOwnedOrder(id, req.user.id);
+  if (o.status === 'CANCELLED') return res.status(200).json(mapOrder(o)); // idempoten
+  throw new HttpError(409, 'ORDER_NOT_CANCELLABLE', `Pesanan berstatus ${o.status} dan tidak dapat dibatalkan`);
 }));
 
 finishApp(app);

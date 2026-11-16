@@ -21,7 +21,7 @@
 
       <nav id="main-nav" class="nav" aria-label="Menu utama" hidden>
         <a href="#/events" data-nav="events">Jelajahi</a>
-        <a href="#/orders" data-nav="orders">Pesanan saya <span id="pending-badge" class="count" hidden></span></a>
+        <a href="#/orders" data-nav="orders">Pesanan saya <span id="pending-badge" class="count" title="Pesanan yang perlu diselesaikan" hidden></span></a>
         <a href="#/admin" data-nav="admin" id="nav-admin" hidden>Admin</a>
       </nav>
 
@@ -141,7 +141,7 @@
         <div class="page-head">
           <div>
             <h1>Pesanan saya</h1>
-            <p class="muted">Pesanan diproses lewat antrian. Status awal <b>Menunggu</b> akan berubah sendiri menjadi <b>Berhasil</b> atau <b>Ditolak</b>.</p>
+            <p class="muted">Pesanan diproses lewat antrian, lalu tiketmu ditahan sementara. Selesaikan pembayaran sebelum waktunya habis agar status menjadi <b>Lunas</b>; jika tidak, pesanan menjadi <b>Kedaluwarsa</b> dan tiket dikembalikan ke stok.</p>
           </div>
           <button id="refresh-orders" type="button" class="btn small ghost">Muat ulang</button>
         </div>
@@ -150,9 +150,10 @@
 
         <div class="seg seg-wide" role="tablist" aria-label="Filter status pesanan" id="order-filter">
           <button type="button" role="tab" class="seg-btn active" data-ofilter="">Semua</button>
-          <button type="button" role="tab" class="seg-btn" data-ofilter="PENDING">Menunggu</button>
-          <button type="button" role="tab" class="seg-btn" data-ofilter="CONFIRMED">Berhasil</button>
-          <button type="button" role="tab" class="seg-btn" data-ofilter="REJECTED">Ditolak</button>
+          <button type="button" role="tab" class="seg-btn" data-ofilter="RESERVED">Belum bayar</button>
+          <button type="button" role="tab" class="seg-btn" data-ofilter="CONFIRMED">Lunas</button>
+          <button type="button" role="tab" class="seg-btn" data-ofilter="PENDING">Diproses</button>
+          <button type="button" role="tab" class="seg-btn" data-ofilter="CLOSED">Tidak jadi</button>
         </div>
 
         <div id="orders-list" class="orders" aria-live="polite"></div>

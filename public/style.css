@@ -232,7 +232,9 @@ dialog[open] { animation: pop .18s ease-out; }
 .result .badge-ico { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; font-weight: 800; }
 .result .badge-ico.PENDING { background: var(--warn-bg); color: var(--warn); }
 .result .badge-ico.CONFIRMED { background: var(--ok-bg); color: var(--ok); }
-.result .badge-ico.REJECTED { background: var(--err-bg); color: var(--err); }
+.result .badge-ico.REJECTED, .result .badge-ico.EXPIRED { background: var(--err-bg); color: var(--err); }
+.result .badge-ico.RESERVED { background: var(--warn-bg); color: var(--warn); font-size: 22px; }
+.result .badge-ico.CANCELLED { background: var(--surface-2); color: var(--muted); }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- pesanan ---------- */
@@ -257,7 +259,9 @@ dialog[open] { animation: pop .18s ease-out; }
 .status { display: inline-block; padding: 2px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .status.PENDING { background: var(--warn-bg); color: var(--warn); }
 .status.CONFIRMED { background: var(--ok-bg); color: var(--ok); }
-.status.REJECTED { background: var(--err-bg); color: var(--err); }
+.status.REJECTED, .status.EXPIRED { background: var(--err-bg); color: var(--err); }
+.status.RESERVED { background: var(--warn-bg); color: var(--warn); }
+.status.CANCELLED { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
 .pulse::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 6px; animation: blink 1.2s ease-in-out infinite; }
 @keyframes blink { 50% { opacity: .25; } }
 
@@ -267,7 +271,9 @@ dialog[open] { animation: pop .18s ease-out; }
 .step.done { color: var(--ink); }
 .step.done i { background: var(--brand); }
 .step.done.CONFIRMED i { background: var(--ok); }
-.step.done.REJECTED i { background: var(--err); }
+.step.done.REJECTED i, .step.done.EXPIRED i { background: var(--err); }
+.step.done.CANCELLED i { background: var(--muted); }
+.countdown { font-variant-numeric: tabular-nums; }
 .kv { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; font-size: 14px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }

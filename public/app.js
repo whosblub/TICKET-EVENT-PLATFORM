@@ -27,7 +27,26 @@
     EVENT_NOT_ON_SALE: 'Penjualan event ini sedang tidak dibuka.',
     PROCESSING_FAILED: 'Layanan stok sedang tidak tersedia. Coba pesan lagi sebentar lagi.',
   };
-  const STATUS_LABEL = { PENDING: 'Menunggu', CONFIRMED: 'Berhasil', REJECTED: 'Ditolak' };
+  const STATUS_LABEL = { PENDING: 'Diproses', RESERVED: 'Belum bayar', CONFIRMED: 'Lunas', REJECTED: 'Ditolak', EXPIRED: 'Kedaluwarsa', CANCELLED: 'Dibatalkan' };
+  const ORDER_FILTERS = { PENDING: ['PENDING'], RESERVED: ['RESERVED'], CONFIRMED: ['CONFIRMED'], CLOSED: ['REJECTED', 'EXPIRED', 'CANCELLED'] };
+  const FILTER_LABEL = { PENDING: 'diproses', RESERVED: 'belum bayar', CONFIRMED: 'lunas', CLOSED: 'tidak jadi' };
+  // Metode bayar hanya tampilan (simulasi): server belum memakai penyedia pembayaran, POST /orders/{id}/pay tanpa body.
+  const PAY_METHODS = [
+    { id: 'va', name: 'Transfer virtual account', hint: 'Simulasi, tanpa nomor rekening sungguhan' },
+    { id: 'qris', name: 'QRIS', hint: 'Simulasi, tanpa kode QR sungguhan' },
+    { id: 'ewallet', name: 'E-wallet', hint: 'Simulasi, tanpa aplikasi dompet digital' },
+  ];
+
+  // Status RESERVED berbatas waktu (expiresAt). Setelah lewat, tampilan langsung dianggap EXPIRED walau Worker
+  // baru menandainya pada siklus sweeper berikutnya; server tetap penentu (pembayaran ditolak bila sudah lewat).
+  const expiryMs = (o) => (o.expiresAt ? new Date(o.expiresAt).getTime() : 0);
+  const lapsed = (o) => o.status === 'RESERVED' && !!o.expiresAt && expiryMs(o) <= Date.now();
+  const viewStatus = (o) => (lapsed(o) ? 'EXPIRED' : o.status);
+  const needsPoll = (o) => o.status === 'PENDING';
+  const clock = (ms) => {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
   const EVENT_STATUS = { ON_SALE: 'Dijual', UPCOMING: 'Segera', ENDED: 'Selesai', CANCELLED: 'Dibatalkan' };
 
   // ---------- util DOM ----------
@@ -453,7 +472,8 @@
           h('div', {}, h('strong', {}, selected.name), h('div', { class: 'muted small' }, `Maksimal ${MAX_QTY} tiket per pesanan`)),
           h('div', { class: 'qty', role: 'group', 'aria-label': 'Jumlah tiket' }, minus, h('output', { 'aria-live': 'polite' }, String(qty)), plus)),
         h('div', { class: 'total-line' }, h('span', { class: 'muted' }, 'Total'), h('span', { class: 'big' }, selected.price === 0 ? 'Gratis' : rupiah.format(selected.price * qty))),
-        btn);
+        btn,
+        h('p', { class: 'muted small' }, 'Setelah dipesan, tiket ditahan sementara. Selesaikan pembayaran sebelum waktunya habis agar pesanan sah.'));
     }
 
     async function submit(btn) {
@@ -484,20 +504,32 @@
       const out = h('div', { class: 'result' });
       $('.sheet-body', holder).replaceChildren(out);
       const paint = (o) => {
+        const st = viewStatus(o);
+        const icon = { CONFIRMED: '\u2713', RESERVED: 'Rp', REJECTED: '!', EXPIRED: '!', CANCELLED: '!' }[st] || '\u2026';
+        const title = { CONFIRMED: 'Pembayaran berhasil', RESERVED: 'Tiket berhasil ditahan', REJECTED: 'Pesanan ditolak', EXPIRED: 'Batas waktu pembayaran habis', CANCELLED: 'Pesanan dibatalkan' }[st]
+          || (duplicate ? 'Pesanan ini sudah pernah dibuat' : 'Pesanan diterima');
+        const total = rupiah.format(o.totalPrice ?? 0);
+        const text = {
+          PENDING: 'Kami sedang memeriksa stok dan memproses pesananmu. Halaman ini akan berubah otomatis.',
+          RESERVED: `${o.quantity} tiket ${selected.name} untuk ${ev.name} ditahan untukmu. Total ${total}. Bayar sebelum ${o.expiresAt ? timeShort.format(new Date(o.expiresAt)) : 'batas waktu'} agar tiket tidak dilepas.`,
+          CONFIRMED: `${o.quantity} tiket ${selected.name} untuk ${ev.name}. Total ${total}.`,
+          EXPIRED: 'Tiket akan dikembalikan ke stok. Silakan pesan lagi bila masih ingin.',
+          CANCELLED: 'Tiket akan dikembalikan ke stok.',
+        }[st] || (REASONS[o.reason] || o.reason || 'Pesanan tidak dapat diproses.');
         out.replaceChildren(
-          h('div', { class: `badge-ico ${o.status}`, 'aria-hidden': 'true' }, o.status === 'CONFIRMED' ? '\u2713' : o.status === 'REJECTED' ? '!' : '\u2026'),
-          h('h3', {}, o.status === 'CONFIRMED' ? 'Pesanan berhasil' : o.status === 'REJECTED' ? 'Pesanan ditolak' : duplicate ? 'Pesanan ini sudah pernah dibuat' : 'Pesanan diterima'),
-          h('p', { class: 'muted' }, o.status === 'PENDING'
-            ? 'Kami sedang memeriksa stok dan memproses pesananmu. Halaman ini akan berubah otomatis.'
-            : o.status === 'CONFIRMED' ? `${o.quantity} tiket ${selected.name} untuk ${ev.name}. Total ${rupiah.format(o.totalPrice ?? 0)}.`
-              : (REASONS[o.reason] || o.reason || 'Pesanan tidak dapat diproses.')),
-          h('span', { class: `status ${o.status}${o.status === 'PENDING' ? ' pulse' : ''}` }, STATUS_LABEL[o.status] || o.status),
+          h('div', { class: `badge-ico ${st}`, 'aria-hidden': 'true' }, icon),
+          h('h3', {}, title),
+          h('p', { class: 'muted' }, text),
+          h('span', { class: `status ${st}${st === 'PENDING' ? ' pulse' : ''}` }, STATUS_LABEL[st] || st),
           h('div', { class: 'actions' },
-            h('button', { type: 'button', class: 'btn', onclick: () => { closeDialog(); location.hash = '#/orders'; } }, 'Lihat pesanan saya'),
-            h('button', { type: 'button', class: 'btn ghost', onclick: () => fillEventSheet(holder, ev.id, hue) }, 'Pesan lagi')));
+            st === 'RESERVED'
+              ? [h('button', { type: 'button', class: 'btn', onclick: () => openOrder(o, { pay: true }) }, 'Bayar sekarang'),
+                h('button', { type: 'button', class: 'btn ghost', onclick: () => { closeDialog(); location.hash = '#/orders'; } }, 'Lihat pesanan saya')]
+              : [h('button', { type: 'button', class: 'btn', onclick: () => { closeDialog(); location.hash = '#/orders'; } }, 'Lihat pesanan saya'),
+                h('button', { type: 'button', class: 'btn ghost', onclick: () => fillEventSheet(holder, ev.id, hue) }, 'Pesan lagi')]));
       };
       paint(order);
-      if (order.status === 'PENDING') pollOrder(order.id, paint, flag);
+      if (needsPoll(order)) pollOrder(order.id, paint, flag);
     }
 
     const head = sheetHead(hue, ev.name,
@@ -541,18 +573,19 @@
     }, 1000);
   }
 
-  async function pollOrder(id, onUpdate, flag, tries = 0) {
-    if (flag.stopped || tries > 40 || !session) return;
-    await new Promise((r) => setTimeout(r, POLL_MS));
-    if (flag.stopped) return;
-    try {
-      const { data } = await api('GET', `/orders/${id}`);
-      if (flag.stopped) return;
-      onUpdate(data);
-      if (data.status === 'PENDING') pollOrder(id, onUpdate, flag, tries + 1);
-      else refreshBadge();
-    } catch (e) {
-      if (e.status === 429) pollOrder(id, onUpdate, flag, tries + 1);
+  // Polling status satu pesanan. keep(order) = true selama status belum final (default: hanya PENDING).
+  async function pollOrder(id, onUpdate, flag, keep = needsPoll) {
+    for (let tries = 0; tries <= 40; tries++) {
+      await new Promise((r) => setTimeout(r, POLL_MS));
+      if (flag.stopped || !session) return;
+      try {
+        const { data } = await api('GET', `/orders/${id}`);
+        if (flag.stopped) return;
+        onUpdate(data);
+        if (!keep(data)) { refreshBadge(); return; }
+      } catch (e) {
+        if (e.status !== 429) return;
+      }
     }
   }
 
@@ -584,9 +617,19 @@
         h('button', { type: 'button', class: 'btn small', onclick: () => loadOrders() }, 'Coba lagi')));
     }
     clearTimeout(pollTimer);
-    if (session && currentRoute() === 'orders' && orState.items.some((o) => o.status === 'PENDING')) {
-      pollTimer = setTimeout(() => loadOrders(true), POLL_MS);
+    if (session && currentRoute() === 'orders') {
+      const wait = nextRefreshMs(orState.items);
+      if (wait != null) pollTimer = setTimeout(() => loadOrders(true), wait);
     }
+  }
+
+  // Kapan daftar pesanan perlu dimuat ulang otomatis: PENDING tiap 2,5 dtk; RESERVED sekali saat batas bayar lewat.
+  function nextRefreshMs(items) {
+    if (items.some((o) => o.status === 'PENDING')) return POLL_MS;
+    const held = items.filter((o) => o.status === 'RESERVED');
+    if (!held.length) return null;
+    if (held.some(lapsed)) return 5000; // menunggu Worker menandai EXPIRED
+    return Math.min(Math.max(1000, Math.min(...held.map(expiryMs)) - Date.now() + 1000), 60_000);
   }
 
   // Cari nama event/tiket untuk pesanan yang sudah dikonfirmasi tetapi namanya belum ada di cache.
@@ -611,13 +654,13 @@
     const items = orState.items;
     const stats = $('#order-stats');
     if (orState.total) {
-      const c = (s) => items.filter((o) => o.status === s).length;
-      const spent = items.filter((o) => o.status === 'CONFIRMED').reduce((n, o) => n + (o.totalPrice || 0), 0);
+      const c = (s) => items.filter((o) => viewStatus(o) === s).length;
+      const spent = items.filter((o) => viewStatus(o) === 'CONFIRMED').reduce((n, o) => n + (o.totalPrice || 0), 0);
       stats.hidden = false;
       stats.replaceChildren(
         h('div', { class: 'stat' }, h('b', {}, String(orState.total)), h('span', {}, 'Total pesanan')),
-        h('div', { class: 'stat' }, h('b', {}, String(c('PENDING'))), h('span', {}, 'Menunggu')),
-        h('div', { class: 'stat' }, h('b', {}, String(c('CONFIRMED'))), h('span', {}, 'Berhasil')),
+        h('div', { class: 'stat' }, h('b', {}, String(c('RESERVED'))), h('span', {}, 'Belum bayar')),
+        h('div', { class: 'stat' }, h('b', {}, String(c('CONFIRMED'))), h('span', {}, 'Lunas')),
         h('div', { class: 'stat' }, h('b', {}, rupiah.format(spent)), h('span', {}, 'Total belanja')),
         ...(orState.total > ORDERS_PAGE ? [h('p', { class: 'muted small stats-note' }, `Ringkasan status dan belanja dihitung dari ${items.length} pesanan di halaman ini.`)] : []));
     } else stats.hidden = true;
@@ -629,28 +672,30 @@
       renderPager($('#orders-pager'), { offset: 0, limit: ORDERS_PAGE, total: 0 });
       return;
     }
-    const shown = orState.filter ? items.filter((o) => o.status === orState.filter) : items;
+    const shown = orState.filter ? items.filter((o) => ORDER_FILTERS[orState.filter].includes(viewStatus(o))) : items;
     if (!shown.length) {
-      box.replaceChildren(h('div', { class: 'empty' }, h('strong', {}, `Tidak ada pesanan "${STATUS_LABEL[orState.filter].toLowerCase()}" di halaman ini`)));
+      box.replaceChildren(h('div', { class: 'empty' }, h('strong', {}, `Tidak ada pesanan "${FILTER_LABEL[orState.filter]}" di halaman ini`)));
     } else {
       box.replaceChildren(...shown.map((o) => {
         const d = new Date(o.createdAt);
-        return h('button', { type: 'button', class: 'order-row', 'aria-label': `Pesanan ${orderTitle(o)}, ${STATUS_LABEL[o.status]}, buka detail`, onclick: () => openOrder(o) },
+        return h('button', { type: 'button', class: 'order-row', 'aria-label': `Pesanan ${orderTitle(o)}, ${STATUS_LABEL[viewStatus(o)]}, buka detail`, onclick: () => openOrder(o) },
           h('div', { class: 'order-date' }, h('b', {}, String(d.getDate())), h('span', {}, monthShort.format(d))),
           h('div', { class: 'order-info' },
             h('strong', {}, orderTitle(o)),
-            h('span', { class: 'muted small' }, `${o.quantity} tiket, ${timeShort.format(d)}`)),
+            h('span', { class: 'muted small' }, viewStatus(o) === 'RESERVED' && o.expiresAt
+              ? `${o.quantity} tiket, bayar sebelum ${timeShort.format(new Date(o.expiresAt))}`
+              : `${o.quantity} tiket, ${timeShort.format(d)}`)),
           h('div', { class: 'order-side' },
-            h('span', { class: `status ${o.status}${o.status === 'PENDING' ? ' pulse' : ''}` }, STATUS_LABEL[o.status] || o.status),
+            h('span', { class: `status ${viewStatus(o)}${o.status === 'PENDING' ? ' pulse' : ''}` }, STATUS_LABEL[viewStatus(o)] || o.status),
             h('span', { class: 'small' }, o.totalPrice != null ? rupiah.format(o.totalPrice) : '')));
       }));
     }
     renderPager($('#orders-pager'), { offset: orState.offset, limit: ORDERS_PAGE, total: orState.total }, (o) => { orState.offset = o; loadOrders(); scrollTo({ top: 0 }); });
   }
 
-  // Lencana jumlah pesanan yang masih menunggu di menu.
+  // Lencana jumlah pesanan yang perlu perhatian di menu: sedang diproses atau menunggu pembayaran.
   function updateBadge(items) {
-    const n = items.filter((o) => o.status === 'PENDING').length;
+    const n = items.filter((o) => o.status === 'PENDING' || (o.status === 'RESERVED' && !lapsed(o))).length;
     const b = $('#pending-badge');
     b.hidden = !n;
     b.textContent = String(n);
@@ -660,38 +705,186 @@
     try { const { data } = await api('GET', '/orders?limit=50'); updateBadge(data.data); } catch { /* lencana hanya hiasan */ }
   }
 
-  function openOrder(initial) {
+  function openOrder(initial, opts = {}) {
     const flag = { stopped: false };
     const holder = h('div', {});
-    const paint = (o) => {
+    let order = initial;
+    let mode = opts.pay && initial.status === 'RESERVED' && !lapsed(initial) ? 'pay' : 'detail'; // 'detail' | 'pay'
+    let method = PAY_METHODS[0].id;
+    let askCancel = false;
+    let busy = false;
+    let polling = false;
+    let clockTimer = null;
+    let clocks = [];
+
+    const stopClock = () => { clearInterval(clockTimer); clockTimer = null; clocks = []; };
+    const remaining = () => expiryMs(order) - Date.now();
+    const clockEl = () => { const el = h('b', { class: 'countdown' }, clock(remaining())); clocks.push(el); return el; };
+    function startClock() {
+      if (viewStatus(order) !== 'RESERVED') return;
+      clockTimer = setInterval(() => {
+        if (!holder.isConnected) { stopClock(); return; }
+        clocks.forEach((el) => { el.textContent = clock(remaining()); });
+        if (remaining() <= 0) { // waktu habis: tampilkan EXPIRED, lalu tunggu server menandainya
+          stopClock();
+          if (mode === 'pay') mode = 'detail';
+          paint();
+          refreshBadge(); // lencana menu tidak lagi menghitung pesanan yang sudah lewat batas
+          follow((o) => o.status === 'RESERVED');
+        }
+      }, 1000);
+    }
+
+    const sync = (o) => {
+      order = o;
       const i = orState.items.findIndex((x) => x.id === o.id);
       if (i >= 0) orState.items[i] = o;
-      const final = o.status !== 'PENDING';
-      const info = names.tickets[o.ticketTypeId];
-      holder.replaceChildren(
-        sheetHead(hueOf(info?.event || 'Pesanan'), info ? info.event : 'Pesanan tiket', h('p', {}, info ? info.ticket : `Tiket ${o.ticketTypeId.slice(0, 8)}`),
-          h('span', { class: 'chip' }, STATUS_LABEL[o.status] || o.status)),
-        h('div', { class: 'sheet-body' },
-          h('div', { class: 'steps', role: 'img', 'aria-label': `Tahap pesanan: ${STATUS_LABEL[o.status] || o.status}` },
-            h('div', { class: 'step done' }, h('i'), 'Diterima'),
-            h('div', { class: `step${final ? ' done' : ''}` }, h('i'), 'Diproses'),
-            h('div', { class: `step${final ? ` done ${o.status}` : ''}` }, h('i'), final ? STATUS_LABEL[o.status] : 'Hasil')),
-          o.status === 'REJECTED' ? h('div', { class: 'alert err' }, REASONS[o.reason] || o.reason || 'Pesanan tidak dapat diproses.') : null,
-          o.status === 'PENDING' ? h('div', { class: 'alert warn' }, 'Pesananmu sedang diproses. Halaman ini diperbarui otomatis.') : null,
-          h('dl', { class: 'kv' },
-            h('dt', {}, 'Jumlah'), h('dd', {}, `${o.quantity} tiket`),
-            h('dt', {}, 'Harga satuan'), h('dd', {}, o.unitPrice != null ? rupiah.format(o.unitPrice) : '-'),
-            h('dt', {}, 'Total'), h('dd', {}, o.totalPrice != null ? rupiah.format(o.totalPrice) : '-'),
-            h('dt', {}, 'Dibuat'), h('dd', {}, dateShort.format(new Date(o.createdAt))),
-            h('dt', {}, 'Diperbarui'), h('dd', {}, dateShort.format(new Date(o.updatedAt))),
-            h('dt', {}, 'ID pesanan'), h('dd', {}, h('code', {}, o.id))),
-          h('div', { class: 'actions' },
-            h('button', { type: 'button', class: 'btn ghost small', onclick: () => copyText(o.id) }, 'Salin ID pesanan'),
-            o.eventId ? h('button', { type: 'button', class: 'btn ghost small', onclick: () => openEvent({ id: o.eventId, name: info?.event || 'Event' }) }, 'Lihat event') : null)));
     };
-    paint(initial);
-    openDialog(holder, () => { flag.stopped = true; renderOrders(); });
-    if (initial.status === 'PENDING') pollOrder(initial.id, paint, flag);
+    function follow(keep) {
+      if (polling || flag.stopped) return;
+      polling = true;
+      pollOrder(order.id, (o) => { sync(o); if (mode === 'pay' && viewStatus(o) !== 'RESERVED') mode = 'detail'; paint(); }, flag, keep)
+        .finally(() => { polling = false; });
+    }
+    async function reload() { // dipakai setelah konflik (409/404): ambil status terbaru dari server
+      try { const { data } = await api('GET', `/orders/${order.id}`); sync(data); } catch { /* tampilkan data terakhir */ }
+      mode = 'detail';
+      askCancel = false;
+      paint();
+      refreshBadge();
+    }
+
+    async function pay(btn) {
+      if (busy) return;
+      busy = true;
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Memproses pembayaran...';
+      try {
+        const { data } = await api('POST', `/orders/${order.id}/pay`);
+        sync(data);
+        mode = 'detail';
+        toast('Pembayaran berhasil. Tiketmu sudah aktif.', 'ok');
+        refreshBadge();
+        paint();
+      } catch (e) {
+        toast(e.message, 'err');
+        if (e.status === 429 && e.retryAfter) cooldown(btn, label, e.retryAfter);
+        else if (e.status === 409 || e.status === 404) await reload(); // sudah lewat batas / status berubah
+        else { btn.disabled = false; btn.textContent = label; }
+      } finally { busy = false; }
+    }
+
+    async function cancel(btn) {
+      if (busy) return;
+      busy = true;
+      btn.disabled = true;
+      try {
+        const { data } = await api('POST', `/orders/${order.id}/cancel`);
+        sync(data);
+        askCancel = false;
+        toast('Pesanan dibatalkan. Tiket akan dikembalikan ke stok.', 'ok');
+        refreshBadge();
+        paint();
+      } catch (e) {
+        toast(e.message, 'err');
+        if (e.status === 409 || e.status === 404) await reload();
+        else btn.disabled = false;
+      } finally { busy = false; }
+    }
+
+    function stepsBar(st) {
+      const last = { CONFIRMED: 'Lunas', REJECTED: 'Ditolak', EXPIRED: 'Kedaluwarsa', CANCELLED: 'Dibatalkan' }[st];
+      return h('div', { class: 'steps', role: 'img', 'aria-label': `Tahap pesanan: ${STATUS_LABEL[st] || st}` },
+        h('div', { class: 'step done' }, h('i'), 'Diterima'),
+        h('div', { class: `step${st !== 'PENDING' ? ' done' : ''}` }, h('i'), 'Diproses'),
+        h('div', { class: `step${last ? ` done ${st}` : ''}` }, h('i'), last || 'Pembayaran'));
+    }
+
+    function detailBody(st) {
+      const o = order;
+      const info = names.tickets[o.ticketTypeId];
+      let note = null;
+      if (st === 'PENDING') note = h('div', { class: 'alert warn' }, 'Pesananmu sedang diproses. Halaman ini diperbarui otomatis.');
+      else if (st === 'RESERVED') note = h('div', { class: 'alert warn' }, 'Tiketmu sedang ditahan. Selesaikan pembayaran dalam ', clockEl(), ' agar tidak dilepas.');
+      else if (st === 'CONFIRMED') note = h('div', { class: 'alert ok' }, `Pembayaran diterima${o.paidAt ? ` pada ${dateShort.format(new Date(o.paidAt))}` : ''}. Tiketmu sudah aktif.`);
+      else if (st === 'REJECTED') note = h('div', { class: 'alert err' }, REASONS[o.reason] || o.reason || 'Pesanan tidak dapat diproses.');
+      else if (st === 'EXPIRED') note = h('div', { class: 'alert err' }, 'Batas waktu pembayaran sudah lewat. Tiket akan dikembalikan ke stok; silakan pesan lagi bila masih ingin.');
+      else if (st === 'CANCELLED') note = h('div', { class: 'alert warn' }, 'Pesanan dibatalkan. Tiket akan dikembalikan ke stok.');
+
+      const actions = [];
+      if (st === 'RESERVED') {
+        actions.push(h('button', { type: 'button', class: 'btn', onclick: () => { mode = 'pay'; askCancel = false; paint(); } }, 'Bayar sekarang'));
+        if (askCancel) {
+          actions.push(
+            h('span', { class: 'muted small' }, 'Yakin membatalkan? Tiket akan dilepas.'),
+            h('button', { type: 'button', class: 'btn danger small', onclick: (ev) => cancel(ev.currentTarget) }, 'Ya, batalkan'),
+            h('button', { type: 'button', class: 'btn ghost small', onclick: () => { askCancel = false; paint(); } }, 'Tidak'));
+        } else {
+          actions.push(h('button', { type: 'button', class: 'btn ghost', onclick: () => { askCancel = true; paint(); } }, 'Batalkan pesanan'));
+        }
+      }
+      actions.push(
+        h('button', { type: 'button', class: 'btn ghost small', onclick: () => copyText(o.id) }, 'Salin ID pesanan'),
+        o.eventId ? h('button', { type: 'button', class: 'btn ghost small', onclick: () => openEvent({ id: o.eventId, name: info?.event || 'Event' }) }, 'Lihat event') : null);
+
+      return h('div', { class: 'sheet-body' },
+        stepsBar(st),
+        note,
+        h('dl', { class: 'kv' },
+          h('dt', {}, 'Jumlah'), h('dd', {}, `${o.quantity} tiket`),
+          h('dt', {}, 'Harga satuan'), h('dd', {}, o.unitPrice != null ? rupiah.format(o.unitPrice) : '-'),
+          h('dt', {}, 'Total'), h('dd', {}, o.totalPrice != null ? rupiah.format(o.totalPrice) : '-'),
+          o.expiresAt && (o.status === 'RESERVED' || st === 'EXPIRED') ? [h('dt', {}, 'Batas bayar'), h('dd', {}, dateShort.format(new Date(o.expiresAt)))] : null,
+          o.paidAt ? [h('dt', {}, 'Dibayar'), h('dd', {}, dateShort.format(new Date(o.paidAt)))] : null,
+          h('dt', {}, 'Dibuat'), h('dd', {}, dateShort.format(new Date(o.createdAt))),
+          h('dt', {}, 'Diperbarui'), h('dd', {}, dateShort.format(new Date(o.updatedAt))),
+          h('dt', {}, 'ID pesanan'), h('dd', {}, h('code', {}, o.id))),
+        h('div', { class: 'actions' }, ...actions));
+    }
+
+    function payBody() {
+      const o = order;
+      const info = names.tickets[o.ticketTypeId];
+      const total = o.totalPrice ?? 0;
+      const label = total === 0 ? 'Konfirmasi tiket gratis' : `Bayar ${rupiah.format(total)}`;
+      const payBtn = h('button', { type: 'button', class: 'btn block' }, label);
+      payBtn.addEventListener('click', () => pay(payBtn));
+      const methods = total === 0 ? [] : PAY_METHODS.map((m) => {
+        const input = h('input', { type: 'radio', name: 'pm', value: m.id, checked: method === m.id });
+        input.addEventListener('change', () => { method = m.id; });
+        return h('label', { class: 'tt-opt' }, input, h('div', {}, h('div', { class: 'tt-name' }, m.name), h('div', { class: 'muted small' }, m.hint)), h('span'));
+      });
+      return h('div', { class: 'sheet-body' },
+        h('div', { class: 'sheet-title' }, 'Pembayaran'),
+        h('div', { class: 'alert warn' }, 'Selesaikan dalam ', clockEl(), '. Setelah itu tiket dilepas kembali.'),
+        h('dl', { class: 'kv' },
+          h('dt', {}, 'Event'), h('dd', {}, info?.event || 'Event'),
+          h('dt', {}, 'Tiket'), h('dd', {}, info?.ticket || `Tiket ${o.ticketTypeId.slice(0, 8)}`),
+          h('dt', {}, 'Jumlah'), h('dd', {}, `${o.quantity} tiket`),
+          h('dt', {}, 'Total'), h('dd', {}, h('strong', {}, total === 0 ? 'Gratis' : rupiah.format(total)))),
+        methods.length ? h('div', { class: 'sheet-title' }, 'Metode pembayaran') : null,
+        methods.length ? h('div', { class: 'tt-list', role: 'radiogroup', 'aria-label': 'Metode pembayaran' }, ...methods) : null,
+        h('p', { class: 'muted small' }, 'Mode simulasi: tidak ada uang sungguhan yang dipindahkan. Pada sistem nyata, langkah ini diganti penyedia pembayaran.'),
+        payBtn,
+        h('button', { type: 'button', class: 'btn ghost block', onclick: () => { mode = 'detail'; paint(); } }, 'Kembali'));
+    }
+
+    function paint() {
+      stopClock();
+      const st = viewStatus(order);
+      const info = names.tickets[order.ticketTypeId];
+      holder.replaceChildren(
+        sheetHead(hueOf(info?.event || 'Pesanan'), info ? info.event : 'Pesanan tiket', h('p', {}, info ? info.ticket : `Tiket ${order.ticketTypeId.slice(0, 8)}`),
+          h('span', { class: 'chip' }, STATUS_LABEL[st] || st)),
+        mode === 'pay' && st === 'RESERVED' ? payBody() : detailBody(st));
+      startClock();
+    }
+
+    paint();
+    openDialog(holder, () => { flag.stopped = true; stopClock(); renderOrders(); });
+    if (needsPoll(order)) follow(needsPoll);
+    else if (lapsed(order)) follow((o) => o.status === 'RESERVED');
   }
 
   async function copyText(text) {

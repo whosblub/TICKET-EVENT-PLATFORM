@@ -65,7 +65,7 @@ DATABASE_URL='postgres://...' node scripts/create-admin.mjs penguji-admin@exampl
 
 - Pembatalan pesanan, refund, dan pelepasan reservasi stok belum tersedia. Pesanan `PROCESSING_FAILED` dapat meninggalkan stok tertahan (kesalahan ke arah "kurang jual", bukan oversell).
 - Rate limiter bersifat fail-open bila Redis mati (ketersediaan didahulukan).
-- Tidak ada antarmuka admin di web; fitur admin hanya lewat API (`POST /events`, mutation `createEvent`, `GET /admin/upstreams`).
+- Antarmuka web punya menu **Admin** (khusus role `admin`) untuk membuat event dan melihat status replika; fitur lain tetap bisa lewat API (`POST /events`, mutation `createEvent`, `GET /admin/upstreams`). Pembatalan pesanan belum ada di UI karena belum ada endpoint-nya.
 - Grant `password` untuk client publik (produksi sebaiknya Authorization Code + PKCE).
 
 ### Perubahan setelah freeze
@@ -382,19 +382,21 @@ Gateway dan Worker memakai `UpstreamPool` (`src/lib/upstream.js`): di Docker Com
 
 ## Antarmuka web
 
-Gateway menyajikan antarmuka web sederhana (folder `public/`, tanpa build step) di **`http://localhost:8080/`** (atau URL deployment gateway). Halaman ini hanya memakai API publik lewat gateway, jadi sekaligus menjadi klien contoh untuk OAuth2, katalog, dan pemesanan asinkron.
+Gateway menyajikan antarmuka web (folder `public/`, tanpa build step, tanpa font atau skrip eksternal) di **`http://localhost:8080/`** (atau URL deployment gateway). Halaman ini hanya memakai API publik lewat gateway, jadi sekaligus menjadi klien contoh untuk OAuth2, katalog, pemesanan asinkron, dan fitur admin.
 
 | Fitur | Keterangan |
 |---|---|
-| Daftar / Masuk | Memakai `POST /auth/register` dan OAuth2 password grant (client `ticketing-web`). Token disimpan di `sessionStorage`, berlaku 15 menit; setelah itu diminta masuk lagi. |
-| Katalog event | Pencarian nama/artis, filter kota, "hanya yang tersedia" (`GET /events`); tombol "Lihat tiket" memuat `GET /events/{id}` dengan stok terbaru. |
-| Pesan tiket | `POST /orders` dengan `Idempotency-Key` baru di setiap klik. Jumlah dibatasi 1-4 tiket (dan stok). |
-| Pesanan saya | `GET /orders`; status `Menunggu` berubah otomatis menjadi `Berhasil` / `Ditolak` (polling tiap 2,5 detik selama masih ada yang menunggu). |
+| Daftar / Masuk | `POST /auth/register` dan OAuth2 password grant (client `ticketing-web`), dengan validasi di sisi klien. Token disimpan di `sessionStorage`; header menampilkan hitung mundur sesi (15 menit) dan memberi peringatan 1 menit sebelum habis. |
+| Katalog event | Kartu berbentuk tiket. Filter nama/artis (otomatis saat mengetik), kota, kategori, status, dan "hanya yang masih ada tiket"; paginasi 12 event per halaman (`GET /events`). |
+| Detail event dan pemesanan | Klik kartu untuk membuka `GET /events/{id}` dengan stok terbaru: pilih jenis tiket, atur jumlah (1-4, dibatasi stok), lihat total, lalu `POST /orders`. `Idempotency-Key` dipakai ulang saat percobaan yang sama belum pasti hasilnya (jaringan putus, klik ganda) dan dibuat baru setelah hasil pasti. Respons `429` menonaktifkan tombol sesuai `Retry-After`. Event non-`ON_SALE` tidak dapat dipesan dari UI. |
+| Pesanan saya | `GET /orders` dengan paginasi, ringkasan, dan filter status. Status `Menunggu` berubah otomatis (polling 2,5 detik). Klik baris untuk detail (`GET /orders/{id}`: tahapan, harga, waktu, alasan penolakan, salin ID). Lencana di menu menunjukkan jumlah pesanan yang masih menunggu. |
+| Admin (role `admin`) | **Buat event**: form dengan validasi yang sama seperti server, 1-10 jenis tiket dinamis, dan pratinjau kartu langsung (`POST /events`). **Status layanan**: replika upstream dan kesehatannya, muncul otomatis tiap 10 detik (`GET /admin/upstreams`). Menu ini tidak tampil untuk akun biasa. |
+| Tampilan | Tema terang/gelap (mengikuti sistem, dapat diganti manual), responsif sampai layar ponsel, fokus keyboard terlihat, `prefers-reduced-motion` dihormati. |
 | Replika | Footer menampilkan header `X-Instance-Id` dari respons terakhir (untuk melihat load balancing). |
 
-Skenario uji cepat lewat UI (dengan data bersih, `docker compose down -v` lalu `up --build`): daftar akun, buka event **"Konser Uji Beban (stok terbatas)"** (stok 10), pesan 4 tiket tiga kali: dua pesanan pertama `Berhasil`, yang berikutnya `Ditolak` dengan keterangan "Stok tiket habis". Pesan lebih dari 10 kali dalam semenit untuk melihat pesan rate limit (429).
+Skenario uji cepat lewat UI (dengan data bersih, `docker compose down -v` lalu `up --build`): daftar akun, buka event **"Konser Uji Beban (stok terbatas)"** (stok 10), pesan 4 tiket tiga kali: dua pesanan pertama `Berhasil`, yang berikutnya `Ditolak` dengan keterangan "Stok tiket sudah habis". Pesan lebih dari 10 kali dalam semenit untuk melihat pesan rate limit (429).
 
-Catatan keamanan: semua data dari server ditampilkan lewat `textContent` (tanpa `innerHTML`), halaman memakai CSP `script-src 'self'`, dan aset statis disajikan sebelum rate limit global sehingga tidak memakan kuota API. Fitur admin (membuat event) belum ada di UI; gunakan `POST /events` atau mutation GraphQL `createEvent`.
+Catatan keamanan: semua data dari server ditampilkan lewat `textContent` (tanpa `innerHTML`), gaya dinamis lewat CSSOM, dan halaman memakai CSP `script-src 'self'; style-src 'self'` sehingga tidak ada inline script/style maupun font eksternal. Karena itu tema gelap/terang dipasang oleh berkas terpisah `public/theme.js`. Aset statis disajikan sebelum rate limit global sehingga tidak memakan kuota API. Nama event/tiket untuk tampilan pesanan disimpan di `localStorage` (bukan data sensitif).
 
 ## Menjalankan test
 
@@ -428,7 +430,7 @@ Melihat log: `docker compose logs <nama-service>` (mis. `gateway`, `order-servic
 src/gateway.js  src/auth-service.js  src/event-service.js  src/order-service.js  src/worker.js
 src/lib/        common.js (app, error, log)  db.js  security.js (JWT, scope)  upstream.js (discovery, LB)
                 queue.js (message queue)  orders.js (skema order, pemroses order)
-public/         index.html  style.css  app.js (antarmuka web, disajikan gateway)
+public/         index.html  style.css  app.js  theme.js (antarmuka web, disajikan gateway)
 test/           orders.test.js  inventory.test.js  gateway-ratelimit.test.js  helpers.js
 docs/           openapi.yaml  schema.graphql  arsitektur.png  arsitektur.svg  keamanan-dan-protokol.md
 scripts/        smoke.mjs  gen-jwk.mjs  reset-test-data.mjs  create-admin.mjs

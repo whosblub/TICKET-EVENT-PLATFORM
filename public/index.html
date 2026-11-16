@@ -3,83 +3,255 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tiket Konser - Kelompok B</title>
+  <meta name="color-scheme" content="light dark">
+  <title>Tiket Konser</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232447f5'/%3E%3Cpath d='M7 12a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 1 0-4V8H7z' fill='%23fff'/%3E%3C/svg%3E">
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <a class="skip" href="#main">Lewati ke konten</a>
+
   <header class="top">
-    <h1>Tiket Konser</h1>
-    <div id="userbox" class="userbox" hidden>
-      <span id="who"></span>
-      <button id="logout" type="button" class="btn small ghost">Keluar</button>
+    <div class="top-inner">
+      <a class="brand" href="#/events" aria-label="Tiket Konser, beranda">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 11a2.5 2.5 0 0 0 0 5v5h22v-5a2.5 2.5 0 0 1 0-5V7H5z"/></svg>
+        <span>Tiket Konser</span>
+      </a>
+
+      <nav id="main-nav" class="nav" aria-label="Menu utama" hidden>
+        <a href="#/events" data-nav="events">Jelajahi</a>
+        <a href="#/orders" data-nav="orders">Pesanan saya <span id="pending-badge" class="count" hidden></span></a>
+        <a href="#/admin" data-nav="admin" id="nav-admin" hidden>Admin</a>
+      </nav>
+
+      <div class="top-actions">
+        <button id="theme-toggle" type="button" class="icon-btn" aria-label="Ganti tema gelap/terang" title="Ganti tema">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 8.5 8.5 0 1 0 21 14.5z"/></svg>
+        </button>
+        <div id="userbox" class="userbox" hidden>
+          <div class="who">
+            <span class="who-row"><span id="who" class="who-email"></span><span id="role-badge" class="role" hidden>admin</span></span>
+            <span id="session-left" class="muted small" title="Sisa waktu sesi (token berlaku 15 menit)"></span>
+          </div>
+          <button id="logout" type="button" class="btn small ghost">Keluar</button>
+        </div>
+      </div>
     </div>
   </header>
 
-  <main>
+  <main id="main" tabindex="-1">
     <!-- Masuk / Daftar -->
-    <section id="view-auth" class="card narrow">
-      <div class="tabs" role="tablist">
-        <button type="button" class="tab active" data-auth-tab="login">Masuk</button>
-        <button type="button" class="tab" data-auth-tab="register">Daftar</button>
+    <section id="view-auth" class="auth" hidden>
+      <div class="auth-hero">
+        <h1>Dapatkan tiket konser favoritmu.</h1>
+        <p>Pilih event, pesan dalam hitungan detik, dan pantau status pesananmu langsung dari sini. Satu akun untuk semua event.</p>
+        <ul class="auth-points">
+          <li>Stok tiket selalu diperbarui</li>
+          <li>Pesanan tidak akan terhitung dobel meski kamu klik dua kali</li>
+          <li>Status pesanan berubah otomatis tanpa perlu muat ulang</li>
+        </ul>
       </div>
 
-      <form id="form-login" class="form" autocomplete="on">
-        <label>Email
-          <input name="email" type="email" required autocomplete="username" placeholder="budi@example.com">
-        </label>
-        <label>Password
-          <input name="password" type="password" required autocomplete="current-password">
-        </label>
-        <button class="btn" type="submit">Masuk</button>
-      </form>
+      <div class="card auth-card">
+        <div class="seg" role="tablist" aria-label="Masuk atau daftar">
+          <button type="button" role="tab" class="seg-btn active" data-auth-tab="login" aria-selected="true">Masuk</button>
+          <button type="button" role="tab" class="seg-btn" data-auth-tab="register" aria-selected="false">Daftar</button>
+        </div>
 
-      <form id="form-register" class="form" autocomplete="on" hidden>
-        <label>Nama
-          <input name="name" type="text" maxlength="100" autocomplete="name" placeholder="Budi">
-        </label>
-        <label>Email
-          <input name="email" type="email" required autocomplete="username">
-        </label>
-        <label>Password <small>(minimal 8 karakter)</small>
-        <input name="password" type="password" required minlength="8" maxlength="72" autocomplete="new-password">
-        </label>
-        <button class="btn" type="submit">Daftar dan masuk</button>
-      </form>
+        <form id="form-login" class="form" autocomplete="on" novalidate>
+          <label class="field">Email
+            <input name="email" type="email" required autocomplete="username" placeholder="budi@example.com">
+            <span class="err-text" data-err="email"></span>
+          </label>
+          <label class="field">Password
+            <span class="pw">
+              <input name="password" type="password" required autocomplete="current-password">
+              <button type="button" class="pw-toggle" aria-label="Tampilkan password">Lihat</button>
+            </span>
+            <span class="err-text" data-err="password"></span>
+          </label>
+          <button class="btn block" type="submit">Masuk</button>
+        </form>
+
+        <form id="form-register" class="form" autocomplete="on" novalidate hidden>
+          <label class="field">Nama <small class="muted">(opsional)</small>
+            <input name="name" type="text" maxlength="100" autocomplete="name" placeholder="Budi Santoso">
+          </label>
+          <label class="field">Email
+            <input name="email" type="email" required autocomplete="username" placeholder="budi@example.com">
+            <span class="err-text" data-err="email"></span>
+          </label>
+          <label class="field">Password <small class="muted">(8 sampai 72 karakter)</small>
+            <span class="pw">
+              <input name="password" type="password" required minlength="8" maxlength="72" autocomplete="new-password">
+              <button type="button" class="pw-toggle" aria-label="Tampilkan password">Lihat</button>
+            </span>
+            <span class="err-text" data-err="password"></span>
+          </label>
+          <button class="btn block" type="submit">Buat akun dan masuk</button>
+        </form>
+      </div>
     </section>
 
     <!-- Aplikasi -->
     <section id="view-app" hidden>
-      <nav class="tabs main-tabs" role="tablist">
-        <button type="button" class="tab active" data-tab="events">Event</button>
-        <button type="button" class="tab" data-tab="orders">Pesanan saya</button>
-      </nav>
+      <!-- Jelajahi event -->
+      <div id="panel-events" class="panel" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Jelajahi event</h1>
+            <p class="muted" id="events-summary">Memuat event...</p>
+          </div>
+        </div>
 
-      <div id="panel-events">
-        <form id="form-filter" class="filter card">
-          <input name="q" type="search" placeholder="Cari nama event / artis" maxlength="100">
-          <input name="city" type="text" placeholder="Kota (mis. Jakarta)" maxlength="100">
-          <label class="check"><input name="onlyAvailable" type="checkbox"> Hanya yang tersedia</label>
-          <button class="btn" type="submit">Cari</button>
+        <form id="form-filter" class="filter" role="search">
+          <label class="field grow">Cari
+            <input name="q" type="search" placeholder="Nama event atau artis" maxlength="100">
+          </label>
+          <label class="field">Kota
+            <input name="city" type="text" placeholder="mis. Surabaya" maxlength="100">
+          </label>
+          <label class="field">Kategori
+            <select name="category">
+              <option value="">Semua</option>
+              <option value="konser">Konser</option>
+              <option value="festival">Festival</option>
+            </select>
+          </label>
+          <label class="field">Status
+            <select name="status">
+              <option value="">Semua</option>
+              <option value="ON_SALE">Dijual</option>
+              <option value="UPCOMING">Segera</option>
+              <option value="ENDED">Selesai</option>
+              <option value="CANCELLED">Dibatalkan</option>
+            </select>
+          </label>
+          <label class="check"><input name="onlyAvailable" type="checkbox"> Hanya yang masih ada tiket</label>
+          <button class="btn ghost small" type="button" id="filter-reset">Atur ulang</button>
         </form>
-        <div id="events-list" class="grid"></div>
+
+        <div id="events-list" class="grid" aria-live="polite"></div>
+        <nav id="events-pager" class="pager" aria-label="Halaman event" hidden></nav>
       </div>
 
-      <div id="panel-orders" hidden>
-        <div class="row-between">
-          <h2>Pesanan saya</h2>
-          <button id="refresh-orders" type="button" class="btn small">Muat ulang</button>
+      <!-- Pesanan -->
+      <div id="panel-orders" class="panel" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Pesanan saya</h1>
+            <p class="muted">Pesanan diproses lewat antrian. Status awal <b>Menunggu</b> akan berubah sendiri menjadi <b>Berhasil</b> atau <b>Ditolak</b>.</p>
+          </div>
+          <button id="refresh-orders" type="button" class="btn small ghost">Muat ulang</button>
         </div>
-        <p class="muted">Pesanan diproses asinkron lewat antrian: status awal <b>Menunggu</b>, lalu berubah menjadi <b>Berhasil</b> atau <b>Ditolak</b>. Halaman ini memperbarui otomatis.</p>
-        <div id="orders-list" class="card table-wrap"></div>
+
+        <div id="order-stats" class="stats" hidden></div>
+
+        <div class="seg seg-wide" role="tablist" aria-label="Filter status pesanan" id="order-filter">
+          <button type="button" role="tab" class="seg-btn active" data-ofilter="">Semua</button>
+          <button type="button" role="tab" class="seg-btn" data-ofilter="PENDING">Menunggu</button>
+          <button type="button" role="tab" class="seg-btn" data-ofilter="CONFIRMED">Berhasil</button>
+          <button type="button" role="tab" class="seg-btn" data-ofilter="REJECTED">Ditolak</button>
+        </div>
+
+        <div id="orders-list" class="orders" aria-live="polite"></div>
+        <nav id="orders-pager" class="pager" aria-label="Halaman pesanan" hidden></nav>
+      </div>
+
+      <!-- Admin -->
+      <div id="panel-admin" class="panel" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Admin</h1>
+            <p class="muted">Kelola event dan pantau kesehatan layanan.</p>
+          </div>
+        </div>
+        <div class="seg" role="tablist" aria-label="Menu admin">
+          <button type="button" role="tab" class="seg-btn active" data-atab="create">Buat event</button>
+          <button type="button" role="tab" class="seg-btn" data-atab="upstreams">Status layanan</button>
+        </div>
+
+        <div id="admin-create" class="admin-create">
+          <form id="form-event" class="card form" novalidate>
+            <h2>Detail event</h2>
+            <div class="two">
+              <label class="field">Nama event
+                <input name="name" required maxlength="200" placeholder="Surabaya Jazz Night">
+                <span class="err-text" data-err="name"></span>
+              </label>
+              <label class="field">Artis
+                <input name="artist" required maxlength="200" placeholder="Nama artis atau band">
+                <span class="err-text" data-err="artist"></span>
+              </label>
+              <label class="field">Tempat
+                <input name="venue" required maxlength="200" placeholder="Nama gedung atau lokasi">
+                <span class="err-text" data-err="venue"></span>
+              </label>
+              <label class="field">Kota
+                <input name="city" required maxlength="100" placeholder="Surabaya">
+                <span class="err-text" data-err="city"></span>
+              </label>
+              <label class="field">Kategori
+                <input name="category" required maxlength="50" list="category-options" placeholder="konser">
+                <datalist id="category-options"><option value="konser"><option value="festival"><option value="teater"><option value="olahraga"></datalist>
+                <span class="err-text" data-err="category"></span>
+              </label>
+              <label class="field">Mulai
+                <input name="startsAt" type="datetime-local" required>
+                <span class="err-text" data-err="startsAt"></span>
+              </label>
+              <label class="field">Status penjualan
+                <select name="status">
+                  <option value="ON_SALE">Dijual</option>
+                  <option value="UPCOMING">Segera</option>
+                  <option value="ENDED">Selesai</option>
+                  <option value="CANCELLED">Dibatalkan</option>
+                </select>
+              </label>
+            </div>
+            <label class="field">Deskripsi <small class="muted" id="desc-count">0/2000</small>
+              <textarea name="description" rows="3" maxlength="2000" placeholder="Ceritakan singkat tentang event ini"></textarea>
+            </label>
+
+            <div class="row-between">
+              <h2>Jenis tiket</h2>
+              <button type="button" class="btn small ghost" id="add-tt">Tambah jenis tiket</button>
+            </div>
+            <div id="tt-rows" class="tt-rows"></div>
+            <span class="err-text" data-err="ticketTypes"></span>
+
+            <div id="event-errors" class="alert err" role="alert" hidden></div>
+            <div class="actions">
+              <button class="btn" type="submit" id="event-submit">Terbitkan event</button>
+              <button class="btn ghost" type="button" id="event-reset">Kosongkan form</button>
+            </div>
+          </form>
+
+          <aside class="preview" aria-label="Pratinjau kartu event">
+            <h2>Pratinjau</h2>
+            <div id="event-preview"></div>
+            <p class="muted small">Begini kartu event akan terlihat di katalog.</p>
+          </aside>
+        </div>
+
+        <div id="admin-upstreams" hidden>
+          <div class="row-between">
+            <p class="muted" id="upstream-summary">Memuat...</p>
+            <button type="button" class="btn small ghost" id="refresh-upstreams">Muat ulang</button>
+          </div>
+          <div id="upstream-list" class="upstreams"></div>
+        </div>
       </div>
     </section>
   </main>
 
-  <footer>
-    <span id="served" class="muted"></span>
+  <footer class="foot">
+    <span id="served" class="muted small"></span>
   </footer>
 
-  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="dlg" aria-labelledby="dlg-title"><div id="dlg-body"></div></dialog>
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
   <script src="/app.js"></script>
 </body>
 </html>

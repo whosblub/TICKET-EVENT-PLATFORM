@@ -63,9 +63,9 @@ DATABASE_URL='postgres://...' node scripts/create-admin.mjs penguji-admin@exampl
 
 ### Keterbatasan yang diketahui
 
-- Pembatalan pesanan, refund, dan pelepasan reservasi stok belum tersedia. Pesanan `PROCESSING_FAILED` dapat meninggalkan stok tertahan (kesalahan ke arah "kurang jual", bukan oversell).
+- Pembayaran masih **simulasi** (`POST /orders/{id}/pay` tanpa penyedia pembayaran; tidak ada uang sungguhan). Refund belum tersedia, sehingga pesanan `CONFIRMED` tidak dapat dibatalkan. Stok dari pesanan yang dibatalkan atau kedaluwarsa dikembalikan Worker pada siklus sweeper berikutnya (default sampai 30 detik).
 - Rate limiter bersifat fail-open bila Redis mati (ketersediaan didahulukan).
-- Antarmuka web punya menu **Admin** (khusus role `admin`) untuk membuat event dan melihat status replika; fitur lain tetap bisa lewat API (`POST /events`, mutation `createEvent`, `GET /admin/upstreams`). Pembatalan pesanan belum ada di UI karena belum ada endpoint-nya.
+- Antarmuka web punya menu **Admin** (khusus role `admin`) untuk membuat event dan melihat status replika; fitur lain tetap bisa lewat API (`POST /events`, mutation `createEvent`, `GET /admin/upstreams`).
 - Grant `password` untuk client publik (produksi sebaiknya Authorization Code + PKCE).
 
 ### Perubahan setelah freeze
@@ -138,9 +138,13 @@ sequenceDiagram
     W->>E: POST /internal/reservations (token client credentials)
     E->>D: UPDATE stok WHERE available >= qty (atomik)
     E-->>W: Reservasi berhasil / stok habis
-    W->>D: Set status CONFIRMED atau REJECTED
+    W->>D: Set status RESERVED (stok ditahan sampai expires_at) atau REJECTED
     K->>G: GET /orders/{id} (polling)
-    G-->>K: status akhir
+    G-->>K: RESERVED + expiresAt
+    K->>G: POST /orders/{id}/pay (simulasi)
+    G->>O: Teruskan ke Order Service
+    O->>D: UPDATE RESERVED menjadi CONFIRMED (bersyarat, sebelum expires_at)
+    O-->>K: 200 CONFIRMED
 ```
 
 Mengapa asinkron: saat penjualan dibuka, ribuan request tiba bersamaan. Order Service hanya menulis satu baris dan satu pesan antrian (cepat), sedangkan pemrosesan stok yang berat dilakukan Worker dengan laju terkendali, sehingga Event Service dan database tidak jebol. Tiket tidak terjual ganda karena pengurangan stok atomik di database dan reservasi berkunci `orderId`, jadi job yang terkirim dua kali atau di-retry tidak mengurangi stok dua kali.
@@ -198,7 +202,7 @@ node scripts/smoke.mjs                       # melawan http://localhost:8080
 BASE_URL=https://tp-gateway-production-9a0d.up.railway.app node scripts/smoke.mjs
 ```
 
-Smoke test memeriksa autentikasi, otorisasi, GraphQL, load balancing, 30 pemesanan bersamaan terhadap stok 10 (diterima `202`, lalu menunggu Worker: tepat 10 `CONFIRMED`, 20 `REJECTED`), idempotensi, dan rate limit.
+Smoke test memeriksa autentikasi, otorisasi, GraphQL, load balancing, 30 pemesanan bersamaan terhadap stok 10 (diterima `202`, lalu menunggu Worker: tepat 10 `RESERVED`, 20 `REJECTED`), idempotensi, alur pembayaran (bayar -> `CONFIRMED`, bayar ulang idempoten, batal -> `CANCELLED` dan stok kembali, pesanan orang lain -> `404`, status tidak valid -> `409`), dan rate limit. Kedaluwarsa otomatis (`EXPIRED`) tidak diuji karena butuh `RESERVATION_TTL_SECONDS` pendek; cek manual dengan menurunkan nilainya lalu menunggu sweeper.
 
 ### Tanpa Docker (pengembangan)
 
@@ -273,9 +277,13 @@ Spesifikasi lengkap: [`docs/openapi.yaml`](docs/openapi.yaml). Skema GraphQL bes
 | GET | `/events/{id}` | `events:read` | Detail event dan jenis tiket |
 | POST | `/events` | admin, `events:write` | Buat event |
 | POST | `/graphql` | `events:read` | Katalog via GraphQL; mutation `createEvent` khusus admin |
-| POST | `/orders` | `orders:write` | Pesan tiket. Asinkron: `202` + status `PENDING`; pantau lewat `Location` |
+| POST | `/orders` | `orders:write` | Pesan tiket. Asinkron: `202` + status `PENDING`; pantau lewat `Location` sampai `RESERVED` (stok ditahan) atau `REJECTED` |
 | GET | `/orders` | `orders:read` | Daftar pesanan sendiri |
-| GET | `/orders/{id}` | `orders:read` | Detail pesanan dan status akhir `CONFIRMED`/`REJECTED` (pemilik atau admin) |
+| GET | `/orders/{id}` | `orders:read` | Detail pesanan: status, `expiresAt`, `paidAt` (pemilik atau admin) |
+| POST | `/orders/{id}/pay` | `orders:write` | Bayar (simulasi): `RESERVED` menjadi `CONFIRMED` sebelum `expiresAt`. Idempoten; `409` bila kedaluwarsa atau status tidak sesuai |
+| POST | `/orders/{id}/cancel` | `orders:write` | Batalkan pesanan `RESERVED` menjadi `CANCELLED`, stok dikembalikan. Idempoten; `409` bila sudah dibayar |
+
+**Status pesanan:** `PENDING` (antri) -> `RESERVED` (stok ditahan sampai `expiresAt`, default 15 menit via `RESERVATION_TTL_SECONDS`) -> `CONFIRMED` (dibayar). Jalur lain: `PENDING` -> `REJECTED` (stok habis, event tidak dijual, dll.), `RESERVED` -> `EXPIRED` (tidak dibayar tepat waktu), `RESERVED` -> `CANCELLED` (dibatalkan pembeli). Pay dan cancel hanya untuk pemilik pesanan; pesanan orang lain dijawab `404`.
 
 Endpoint `/internal/*` (reservasi stok) sengaja tidak dapat dijangkau lewat gateway (404) dan hanya menerima token `client_credentials`.
 
@@ -290,7 +298,7 @@ Format error seragam: `{"error":{"code":"...","message":"...","details":[...],"r
 | `/auth/register` | 20 per 5 menit per IP |
 | `/events` | 120/menit per pengguna |
 | `/graphql` | 60/menit per pengguna |
-| `POST /orders` | 10/menit per pengguna |
+| `POST /orders`, `/orders/{id}/pay`, `/orders/{id}/cancel` | 10/menit per pengguna (satu bucket untuk semua `POST` di `/orders`) |
 | `GET /orders` | 60/menit per pengguna |
 
 Batas lain: maksimum 4 tiket per pesanan; GraphQL kedalaman maksimum 5 dan field maksimum 100 (alias dihitung); `limit` halaman maksimum 50; body maksimum 100 KB di gateway.
@@ -332,7 +340,7 @@ Lengkap dengan placeholder di [`.env.example`](.env.example). Variabel wajib per
 | auth-service | `DATABASE_URL`, `ORDER_SERVICE_CLIENT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`; opsional `JWT_PRIVATE_JWK_B64`, `ACCESS_TOKEN_TTL_SECONDS` |
 | event-service | `DATABASE_URL`, `AUTH_JWKS_URL` |
 | order-service | `DATABASE_URL`, `AUTH_JWKS_URL`, `REDIS_URL` |
-| worker | `DATABASE_URL`, `REDIS_URL`, `AUTH_SERVICE_URLS`, `EVENT_SERVICE_URLS`, `ORDER_SERVICE_CLIENT_SECRET`; opsional `WORKER_CONCURRENCY`, `ORDER_JOB_ATTEMPTS`, `ORDER_JOB_BACKOFF_MS`, `ORDER_SWEEP_INTERVAL_MS`, `ORDER_STALE_SECONDS` |
+| worker | `DATABASE_URL`, `REDIS_URL`, `AUTH_SERVICE_URLS`, `EVENT_SERVICE_URLS`, `ORDER_SERVICE_CLIENT_SECRET`; opsional `WORKER_CONCURRENCY`, `ORDER_JOB_ATTEMPTS`, `ORDER_JOB_BACKOFF_MS`, `ORDER_SWEEP_INTERVAL_MS`, `ORDER_STALE_SECONDS`, `RESERVATION_TTL_SECONDS` |
 
 Semua service: `ENFORCE_SECRETS=true` membuat service menolak start jika secret kosong, terlalu pendek, atau masih default. **Wajib aktif pada deployment publik.** Buat kunci JWT dengan `npm run gen:jwk`.
 
@@ -389,7 +397,7 @@ Gateway menyajikan antarmuka web (folder `public/`, tanpa build step, tanpa font
 | Daftar / Masuk | `POST /auth/register` dan OAuth2 password grant (client `ticketing-web`), dengan validasi di sisi klien. Token disimpan di `sessionStorage`; header menampilkan hitung mundur sesi (15 menit) dan memberi peringatan 1 menit sebelum habis. |
 | Katalog event | Kartu berbentuk tiket. Filter nama/artis (otomatis saat mengetik), kota, kategori, status, dan "hanya yang masih ada tiket"; paginasi 12 event per halaman (`GET /events`). |
 | Detail event dan pemesanan | Klik kartu untuk membuka `GET /events/{id}` dengan stok terbaru: pilih jenis tiket, atur jumlah (1-4, dibatasi stok), lihat total, lalu `POST /orders`. `Idempotency-Key` dipakai ulang saat percobaan yang sama belum pasti hasilnya (jaringan putus, klik ganda) dan dibuat baru setelah hasil pasti. Respons `429` menonaktifkan tombol sesuai `Retry-After`. Event non-`ON_SALE` tidak dapat dipesan dari UI. |
-| Pesanan saya | `GET /orders` dengan paginasi, ringkasan, dan filter status. Status `Menunggu` berubah otomatis (polling 2,5 detik). Klik baris untuk detail (`GET /orders/{id}`: tahapan, harga, waktu, alasan penolakan, salin ID). Lencana di menu menunjukkan jumlah pesanan yang masih menunggu. |
+| Pesanan saya | `GET /orders` dengan paginasi, ringkasan, dan filter status. Status `Diproses` berubah otomatis (polling 2,5 detik). Klik baris untuk detail (`GET /orders/{id}`: tahapan, harga, waktu, alasan penolakan, salin ID). Pesanan `Belum bayar` menampilkan hitung mundur `expiresAt`, tombol **Bayar sekarang** (pilih metode simulasi, `POST /orders/{id}/pay`) dan **Batalkan pesanan** (`POST /orders/{id}/cancel`). Status `Lunas`, `Ditolak`, `Kedaluwarsa`, dan `Dibatalkan` tampil sebagai tahap akhir. Lencana di menu menunjukkan jumlah pesanan yang diproses atau menunggu pembayaran. |
 | Admin (role `admin`) | **Buat event**: form dengan validasi yang sama seperti server, 1-10 jenis tiket dinamis, dan pratinjau kartu langsung (`POST /events`). **Status layanan**: replika upstream dan kesehatannya, muncul otomatis tiap 10 detik (`GET /admin/upstreams`). Menu ini tidak tampil untuk akun biasa. |
 | Tampilan | Tema terang/gelap (mengikuti sistem, dapat diganti manual), responsif sampai layar ponsel, fokus keyboard terlihat, `prefers-reduced-motion` dihormati. |
 | Replika | Footer menampilkan header `X-Instance-Id` dari respons terakhir (untuk melihat load balancing). |

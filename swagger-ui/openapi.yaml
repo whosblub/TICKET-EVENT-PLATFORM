@@ -158,8 +158,12 @@ paths:
       summary: Pesan tiket (scope orders:write) - diproses asinkron lewat message queue
       description: |
         Pesanan disimpan berstatus `PENDING`, dimasukkan ke message queue, lalu diproses Worker (reservasi stok).
-        Respons `202` berarti **diterima**, bukan terkonfirmasi. Baca hasil akhir (`CONFIRMED` atau `REJECTED`
-        beserta `reason`) lewat `GET /orders/{id}` (polling, mis. tiap 1-2 detik) menggunakan URL di header `Location`.
+        Respons `202` berarti **diterima**, bukan terkonfirmasi. Baca hasilnya lewat `GET /orders/{id}` (polling,
+        mis. tiap 1-2 detik) menggunakan URL di header `Location`:
+        - `RESERVED`: stok ditahan untuk pembeli sampai `expiresAt`. Selesaikan dengan `POST /orders/{id}/pay`
+          (jadi `CONFIRMED`) atau batalkan dengan `POST /orders/{id}/cancel` (jadi `CANCELLED`).
+        - `REJECTED`: ditolak, lihat `reason` (mis. stok habis).
+        Pesanan `RESERVED` yang tidak dibayar sampai `expiresAt` menjadi `EXPIRED` dan stoknya dikembalikan.
         Stok tidak pernah terjual ganda: pengurangan stok atomik di database dan reservasi berkunci `orderId`.
       parameters:
         - { name: Idempotency-Key, in: header, required: false, schema: { type: string, pattern: '^[\w.:-]{1,64}$' }, description: Kirim ulang dengan kunci sama tidak membuat pesanan baru }
@@ -204,6 +208,42 @@ paths:
       responses:
         '200': { description: Pesanan, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
         '404': { description: Tidak ditemukan }
+  /orders/{id}/pay:
+    post:
+      tags: [Orders]
+      summary: Bayar pesanan (SIMULASI, scope orders:write) - RESERVED menjadi CONFIRMED
+      description: |
+        Menandai pesanan `RESERVED` milik pengguna sebagai `CONFIRMED` (mengisi `paidAt`) selama belum lewat `expiresAt`.
+        Tanpa request body dan **tidak ada uang sungguhan yang dipindahkan**; pada sistem nyata endpoint ini diganti
+        webhook penyedia pembayaran. Idempoten: memanggil ulang pesanan yang sudah `CONFIRMED` mengembalikan `200`
+        dengan pesanan yang sama. Hanya pemilik yang dapat membayar; pesanan milik orang lain dijawab `404`
+        (admin tidak dapat membayar pesanan pengguna lain).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Pembayaran berhasil (atau pesanan sudah CONFIRMED), content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: ORDER_NOT_FOUND (tidak ada atau bukan milik pengguna) }
+        '409': { description: 'ORDER_EXPIRED (batas waktu bayar sudah lewat) atau ORDER_NOT_PAYABLE (status PENDING, REJECTED, atau CANCELLED)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /orders/{id}/cancel:
+    post:
+      tags: [Orders]
+      summary: Batalkan pesanan yang belum dibayar (scope orders:write) - RESERVED menjadi CANCELLED
+      description: |
+        Hanya untuk pesanan `RESERVED` (belum dibayar). Stok dikembalikan oleh Worker dalam satu siklus sweeper
+        (default sampai 30 detik), jadi `available` pada event bisa naik sedikit terlambat. Idempoten: memanggil ulang
+        pesanan yang sudah `CANCELLED` mengembalikan `200`. Pesanan `CONFIRMED` tidak dapat dibatalkan karena refund belum tersedia.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Pesanan dibatalkan (atau sudah CANCELLED), content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: ORDER_NOT_FOUND (tidak ada atau bukan milik pengguna) }
+        '409': { description: 'ORDER_NOT_CANCELLABLE (status PENDING, CONFIRMED, REJECTED, atau EXPIRED)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -296,7 +336,16 @@ components:
         quantity: { type: integer }
         unitPrice: { type: number, nullable: true }
         totalPrice: { type: number, nullable: true }
-        status: { type: string, enum: [PENDING, CONFIRMED, REJECTED], description: 'PENDING = antri/sedang diproses; CONFIRMED = tiket didapat; REJECTED = ditolak (lihat reason)' }
+        status:
+          type: string
+          enum: [PENDING, RESERVED, CONFIRMED, REJECTED, EXPIRED, CANCELLED]
+          description: |
+            PENDING = antri/sedang diproses; RESERVED = stok ditahan, menunggu pembayaran sebelum `expiresAt`;
+            CONFIRMED = sudah dibayar, tiket didapat; REJECTED = ditolak (lihat `reason`);
+            EXPIRED = tidak dibayar sampai `expiresAt`, stok dikembalikan; CANCELLED = dibatalkan pembeli, stok dikembalikan.
+            Alur: PENDING -> RESERVED -> CONFIRMED, atau PENDING -> REJECTED, RESERVED -> EXPIRED, RESERVED -> CANCELLED.
         reason: { type: string, nullable: true, description: 'Terisi bila REJECTED: INSUFFICIENT_STOCK, TICKET_TYPE_NOT_FOUND, EVENT_NOT_ON_SALE, atau PROCESSING_FAILED (layanan stok gagal setelah semua percobaan ulang)' }
+        expiresAt: { type: string, format: date-time, nullable: true, description: 'Batas waktu bayar (terisi sejak RESERVED; default 15 menit, diatur RESERVATION_TTL_SECONDS)' }
+        paidAt: { type: string, format: date-time, nullable: true, description: 'Waktu pembayaran (terisi saat CONFIRMED)' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

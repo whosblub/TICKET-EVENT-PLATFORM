@@ -156,6 +156,39 @@ const ghost = await call('POST', '/orders', { token: buyer, json: { ticketTypeId
 const ghostFinal = ghost.status === 202 ? await waitOrder(buyer, ghost.body.id) : null;
 ok(ghost.status === 202 && ghostFinal?.status === 'REJECTED' && ghostFinal?.reason === 'TICKET_TYPE_NOT_FOUND', 'ticket type tidak ada -> diterima 202, lalu REJECTED (TICKET_TYPE_NOT_FOUND)', `status=${ghostFinal?.status} reason=${ghostFinal?.reason}`);
 
+// 5b. Pembayaran: RESERVED -> CONFIRMED (bayar), RESERVED -> CANCELLED (batal, stok kembali), serta kasus tolak.
+// Memakai user baru supaya jumlah POST ke /orders tetap di bawah batas 10/menit per user (di sini 8).
+const payer = await newUser('payer');
+const pa = await call('POST', '/orders', { token: payer, json: { ticketTypeId: tt2, quantity: 1 } });
+const pb = await call('POST', '/orders', { token: payer, json: { ticketTypeId: tt2, quantity: 1 } });
+const paRes = await waitOrder(payer, pa.body?.id);
+const pbRes = await waitOrder(payer, pb.body?.id);
+ok(paRes?.status === 'RESERVED' && !!paRes.expiresAt && paRes.paidAt === null && pbRes?.status === 'RESERVED', 'dua pesanan baru -> RESERVED dengan expiresAt, belum ada paidAt', `a=${paRes?.status} b=${pbRes?.status}`);
+const evBeforeRelease = await call('GET', `/events/${ev2.body.id}`, { token: payer });
+ok((await call('POST', `/orders/${pa.body.id}/pay`, { token: stranger })).status === 404, 'user lain membayar pesanan orang -> 404 (BOLA)');
+ok((await call('POST', `/orders/${pa.body.id}/pay`, { token: adminToken })).status === 404, 'admin tidak dapat membayar pesanan user -> 404');
+const paid = await call('POST', `/orders/${pa.body.id}/pay`, { token: payer });
+ok(paid.status === 200 && paid.body.status === 'CONFIRMED' && !!paid.body.paidAt, 'bayar pesanan RESERVED -> 200 CONFIRMED + paidAt', `status=${paid.body?.status}`);
+const paidAgain = await call('POST', `/orders/${pa.body.id}/pay`, { token: payer });
+ok(paidAgain.status === 200 && paidAgain.body.status === 'CONFIRMED', 'bayar ulang pesanan CONFIRMED -> 200 (idempoten)');
+const cancelPaid = await call('POST', `/orders/${pa.body.id}/cancel`, { token: payer });
+ok(cancelPaid.status === 409 && cancelPaid.body.error.code === 'ORDER_NOT_CANCELLABLE', 'batalkan pesanan CONFIRMED -> 409 ORDER_NOT_CANCELLABLE');
+const cancelled = await call('POST', `/orders/${pb.body.id}/cancel`, { token: payer });
+ok(cancelled.status === 200 && cancelled.body.status === 'CANCELLED', 'batalkan pesanan RESERVED -> 200 CANCELLED', `status=${cancelled.body?.status}`);
+const cancelAgain = await call('POST', `/orders/${pb.body.id}/cancel`, { token: payer });
+ok(cancelAgain.status === 200 && cancelAgain.body.status === 'CANCELLED', 'batalkan ulang -> 200 (idempoten)');
+const payCancelled = await call('POST', `/orders/${pb.body.id}/pay`, { token: payer });
+ok(payCancelled.status === 409 && payCancelled.body.error.code === 'ORDER_NOT_PAYABLE', 'bayar pesanan CANCELLED -> 409 ORDER_NOT_PAYABLE');
+ok((await call('POST', `/orders/${ghost.body.id}/pay`, { token: buyer })).status === 409, 'bayar pesanan REJECTED -> 409');
+ok((await call('POST', '/orders/bukan-uuid/pay', { token: payer })).status === 400, 'id pesanan bukan UUID -> 400');
+// Stok dikembalikan oleh sweeper Worker (default sampai 30 dtk): tunggu sampai available naik 1.
+let released = evBeforeRelease.body.ticketTypes[0].available;
+for (let t0 = Date.now(); Date.now() - t0 < 50000 && released === evBeforeRelease.body.ticketTypes[0].available; ) {
+  await sleep(3000);
+  released = (await call('GET', `/events/${ev2.body.id}`, { token: payer })).body.ticketTypes[0].available;
+}
+ok(released === evBeforeRelease.body.ticketTypes[0].available + 1, 'pembatalan mengembalikan 1 tiket ke stok (oleh Worker)', `available ${evBeforeRelease.body.ticketTypes[0].available} -> ${released}`);
+
 // 6. Rate limiting per user pada /orders (dijalankan terakhir)
 const spammer = await newUser('spammer');
 const burst = await Promise.all(Array.from({ length: 15 }, () => call('POST', '/orders', { token: spammer, json: {} })));
